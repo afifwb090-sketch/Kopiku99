@@ -134,7 +134,7 @@ export const ReceiptModal: React.FC<Props> = ({ order, onClose }) => {
               </div>
               {order.discount > 0 && (
                 <div className="flex justify-between text-rose-600">
-                  <span>Diskon:</span>
+                  <span>Diskon {order.promo_code ? `(${order.promo_code})` : ''}:</span>
                   <span>-Rp {order.discount.toLocaleString('id-ID')}</span>
                 </div>
               )}

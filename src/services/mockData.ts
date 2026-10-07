@@ -21,6 +21,15 @@ export const INITIAL_STORE_SETTING: StoreSetting = {
   receipt_header_text: 'K99 KEDAI KOPI & TEH',
   receipt_footer_text: 'Terima kasih telah berkunjung ke K99!\nFollow Instagram @k99kedai\n#K99SemuaSuka',
   available_addons: DEFAULT_ADDONS,
+  promo_codes: [
+    {
+      id: 'promo-1',
+      code: 'K99HEMAT',
+      discount_percent: 10,
+      is_active: true,
+      created_at: new Date().toISOString(),
+    },
+  ],
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
 };

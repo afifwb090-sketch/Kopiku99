@@ -279,11 +279,23 @@ export const OrdersAdmin: React.FC = () => {
                 </div>
               )}
 
-              <div className="border-t border-slate-800 pt-3 flex justify-between font-bold text-sm">
-                <span className="text-white">Total:</span>
-                <span className="text-emerald-400 font-mono">
-                  Rp {detailOrder.total.toLocaleString('id-ID')}
-                </span>
+              <div className="border-t border-slate-800 pt-3 space-y-1 text-xs">
+                <div className="flex justify-between text-slate-400">
+                  <span>Subtotal:</span>
+                  <span>Rp {detailOrder.subtotal.toLocaleString('id-ID')}</span>
+                </div>
+                {detailOrder.discount > 0 && (
+                  <div className="flex justify-between text-emerald-400 font-semibold">
+                    <span>Diskon {detailOrder.promo_code ? `(${detailOrder.promo_code})` : ''}:</span>
+                    <span>-Rp {detailOrder.discount.toLocaleString('id-ID')}</span>
+                  </div>
+                )}
+                <div className="flex justify-between font-bold text-sm pt-1 border-t border-slate-800/80">
+                  <span className="text-white">Total:</span>
+                  <span className="text-emerald-400 font-mono">
+                    Rp {detailOrder.total.toLocaleString('id-ID')}
+                  </span>
+                </div>
               </div>
             </div>
           </div>

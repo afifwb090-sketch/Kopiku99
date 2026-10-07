@@ -32,6 +32,8 @@ export interface CreateOrderInput {
   payment_method: PaymentMethod;
   notes?: string;
   discount?: number;
+  promo_code?: string;
+  promo_discount_percent?: number;
   items: Array<{
     product_id?: string;
     product_name: string;
@@ -115,6 +117,8 @@ export const orderService = {
       payment_method: input.payment_method,
       subtotal,
       discount,
+      promo_code: input.promo_code || null,
+      promo_discount_percent: input.promo_discount_percent || null,
       total,
       notes: input.notes || '',
       created_by: createdBy || null,

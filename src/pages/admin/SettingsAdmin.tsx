@@ -7,7 +7,7 @@ import { authService } from '../../services/authService';
 import { migrationService } from '../../services/migrationService';
 import { productService } from '../../services/productService';
 import { getSupabaseConfig, reinitializeSupabase } from '../../services/supabase';
-import { Profile, MigrationSummary, ProductAddon, UserRole } from '../../types/database';
+import { Profile, MigrationSummary, ProductAddon, UserRole, PromoCode } from '../../types/database';
 import { StaffAccount } from '../../services/authService';
 import { DEFAULT_ADDONS } from '../../services/mockData';
 import {
@@ -34,6 +34,9 @@ import {
   Trash2,
   Edit2,
   Image as ImageIcon,
+  Tag,
+  Percent,
+  Ticket,
 } from 'lucide-react';
 
 export const SettingsAdmin: React.FC = () => {
@@ -41,7 +44,7 @@ export const SettingsAdmin: React.FC = () => {
   const { user } = useAuth();
 
   // Tab
-  const [tab, setTab] = useState<'store' | 'qris_receipt' | 'addons' | 'supabase' | 'users' | 'migration'>('store');
+  const [tab, setTab] = useState<'store' | 'qris_receipt' | 'addons' | 'promo' | 'supabase' | 'users' | 'migration'>('store');
 
   // Store form state
   const [storeName, setStoreName] = useState(storeSettings.store_name);
@@ -68,6 +71,15 @@ export const SettingsAdmin: React.FC = () => {
   );
   const [newAddonName, setNewAddonName] = useState('');
   const [newAddonPrice, setNewAddonPrice] = useState<number>(0);
+
+  // Promo Codes state (Requirement 3 & 4)
+  const [promoCodesList, setPromoCodesList] = useState<PromoCode[]>(
+    storeSettings.promo_codes || []
+  );
+  const [newPromoCode, setNewPromoCode] = useState('');
+  const [newPromoDiscount, setNewPromoDiscount] = useState<number>(10);
+  const [isSavingPromo, setIsSavingPromo] = useState(false);
+  const [promoFormError, setPromoFormError] = useState<string | null>(null);
 
   // Supabase form state
   const [supabaseConfig, setSupabaseConfig] = useState(getSupabaseConfig());
@@ -110,6 +122,9 @@ export const SettingsAdmin: React.FC = () => {
     setReceiptFooterText(storeSettings.receipt_footer_text || '');
     if (storeSettings.available_addons && storeSettings.available_addons.length > 0) {
       setAddonsList(storeSettings.available_addons);
+    }
+    if (storeSettings.promo_codes) {
+      setPromoCodesList(storeSettings.promo_codes);
     }
   }, [storeSettings]);
 
@@ -200,6 +215,62 @@ export const SettingsAdmin: React.FC = () => {
     const updated = addonsList.filter(a => a.id !== id);
     setAddonsList(updated);
     await storeService.updateStoreInfo({ available_addons: updated });
+    await refreshData();
+  };
+
+  const handleCreatePromoCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPromoFormError(null);
+    const cleanCode = newPromoCode.trim().toUpperCase();
+    if (!cleanCode) {
+      setPromoFormError('Silakan masukkan kode promo.');
+      return;
+    }
+    if (newPromoDiscount <= 0 || newPromoDiscount > 100) {
+      setPromoFormError('Persentase diskon harus antara 1% sampai 100%.');
+      return;
+    }
+    if (promoCodesList.some(p => p.code.toUpperCase() === cleanCode)) {
+      setPromoFormError(`Kode promo "${cleanCode}" sudah pernah dibuat sebelumnya.`);
+      return;
+    }
+
+    setIsSavingPromo(true);
+    try {
+      const newPromo: PromoCode = {
+        id: 'promo-' + Math.random().toString(36).substring(2, 9),
+        code: cleanCode,
+        discount_percent: Number(newPromoDiscount),
+        is_active: true,
+        created_at: new Date().toISOString(),
+      };
+      const updated = [newPromo, ...promoCodesList];
+      setPromoCodesList(updated);
+      setNewPromoCode('');
+      setNewPromoDiscount(10);
+      await storeService.updateStoreInfo({ promo_codes: updated });
+      await refreshData();
+    } catch (err: any) {
+      setPromoFormError(err.message || 'Gagal menyimpan kode promo.');
+    } finally {
+      setIsSavingPromo(false);
+    }
+  };
+
+  const handleDeletePromoCode = async (id: string, code: string) => {
+    if (!window.confirm(`Yakin ingin menghapus kode promo "${code}"?`)) return;
+    const updated = promoCodesList.filter(p => p.id !== id);
+    setPromoCodesList(updated);
+    await storeService.updateStoreInfo({ promo_codes: updated });
+    await refreshData();
+  };
+
+  const handleTogglePromoActive = async (id: string) => {
+    const updated = promoCodesList.map(p =>
+      p.id === id ? { ...p, is_active: !p.is_active } : p
+    );
+    setPromoCodesList(updated);
+    await storeService.updateStoreInfo({ promo_codes: updated });
     await refreshData();
   };
 
@@ -354,6 +425,17 @@ export const SettingsAdmin: React.FC = () => {
             }`}
           >
             Kelola Add-on / Topping
+          </button>
+          <button
+            onClick={() => setTab('promo')}
+            className={`pb-3 px-3 text-xs font-bold border-b-2 whitespace-nowrap transition flex items-center gap-1.5 ${
+              tab === 'promo'
+                ? 'border-amber-500 text-amber-400'
+                : 'border-transparent text-slate-400 hover:text-white'
+            }`}
+          >
+            <Tag className="h-3.5 w-3.5" />
+            <span>Buat Kode Promo</span>
           </button>
           <button
             onClick={() => setTab('supabase')}
@@ -705,6 +787,154 @@ export const SettingsAdmin: React.FC = () => {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* TAB PROMO CODES (Requirement 3) */}
+        {tab === 'promo' && (
+          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5 space-y-5 max-w-3xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div>
+                <h3 className="font-bold text-white text-sm flex items-center gap-2">
+                  <Tag className="h-4 w-4 text-amber-400" />
+                  <span>Buat &amp; Kelola Kode Promo</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Buat kode promo sendiri dan tentukan persentase diskonnya. Kode promo ini otomatis memotong total pembelian pelanggan saat konfirmasi pembayaran pemesanan online.
+                </p>
+              </div>
+            </div>
+
+            {promoFormError && (
+              <div className="rounded-xl bg-rose-500/10 border border-rose-500/20 p-3 text-xs text-rose-300">
+                {promoFormError}
+              </div>
+            )}
+
+            {/* Form Buat Kode Promo Baru */}
+            <form onSubmit={handleCreatePromoCode} className="grid grid-cols-1 sm:grid-cols-12 gap-3 p-4 rounded-xl border border-slate-800 bg-slate-950/60">
+              <div className="sm:col-span-6">
+                <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                  Nama / Kode Promo <span className="text-rose-400">*</span>
+                </label>
+                <div className="relative">
+                  <Tag className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
+                  <input
+                    type="text"
+                    required
+                    placeholder="Misal: K99HEMAT, DISKON15"
+                    value={newPromoCode}
+                    onChange={(e) => setNewPromoCode(e.target.value.toUpperCase())}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-800 pl-9 pr-3 py-2 text-xs font-mono font-bold uppercase text-amber-300 placeholder-slate-500 focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+                <span className="text-[10px] text-slate-500 block mt-0.5">Kode bebas ditentukan sendiri (huruf besar)</span>
+              </div>
+
+              <div className="sm:col-span-4">
+                <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                  Persentase Diskon (%) <span className="text-rose-400">*</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    required
+                    min={1}
+                    max={100}
+                    value={newPromoDiscount || ''}
+                    onChange={(e) => setNewPromoDiscount(Number(e.target.value))}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs font-bold text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
+                    placeholder="10"
+                  />
+                  <span className="absolute right-3 top-2.5 text-xs text-slate-400 font-bold">%</span>
+                </div>
+                <span className="text-[10px] text-slate-500 block mt-0.5">Contoh: 10 untuk diskon 10%</span>
+              </div>
+
+              <div className="sm:col-span-2 flex items-end">
+                <button
+                  type="submit"
+                  disabled={isSavingPromo}
+                  className="w-full flex items-center justify-center gap-1.5 rounded-xl bg-amber-500 py-2 px-3 text-xs font-bold text-slate-950 hover:bg-amber-400 disabled:opacity-50 transition"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  <span>Simpan</span>
+                </button>
+              </div>
+            </form>
+
+            {/* List Kode Promo yang Tersimpan */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                  Daftar Kode Promo ({promoCodesList.length})
+                </h4>
+              </div>
+
+              {promoCodesList.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-slate-800 p-8 text-center text-xs text-slate-500">
+                  Belum ada kode promo yang dibuat. Buat kode promo pertama Anda menggunakan form di atas.
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-800 rounded-xl border border-slate-800 bg-slate-950/40 overflow-hidden">
+                  {promoCodesList.map((promo) => (
+                    <div
+                      key={promo.id}
+                      className="flex items-center justify-between p-3.5 hover:bg-slate-800/30 transition"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`px-3 py-1.5 rounded-xl font-mono text-sm font-black border ${
+                          promo.is_active
+                            ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                            : 'bg-slate-800/60 text-slate-500 border-slate-700'
+                        }`}>
+                          {promo.code}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-white">
+                              Potongan {promo.discount_percent}%
+                            </span>
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              promo.is_active
+                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                : 'bg-slate-800 text-slate-400 border border-slate-700'
+                            }`}>
+                              {promo.is_active ? 'Aktif' : 'Nonaktif'}
+                            </span>
+                          </div>
+                          <span className="text-[10px] text-slate-500">
+                            Dibuat: {new Date(promo.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleTogglePromoActive(promo.id)}
+                          className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition ${
+                            promo.is_active
+                              ? 'border-slate-700 text-slate-400 hover:text-white hover:bg-slate-800'
+                              : 'border-emerald-500/30 text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20'
+                          }`}
+                        >
+                          {promo.is_active ? 'Nonaktifkan' : 'Aktifkan'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeletePromoCode(promo.id, promo.code)}
+                          className="p-1.5 rounded-lg text-rose-400 hover:bg-rose-500/10 hover:text-rose-300 transition"
+                          title="Hapus Kode Promo"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
 

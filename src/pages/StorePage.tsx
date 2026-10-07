@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useStore, CartItem } from '../context/StoreContext';
 import { useRouter } from '../context/RouterContext';
 import { StoreStatusBadge } from '../components/StoreStatusBadge';
-import { Product, PaymentMethod, DeliveryType, SelectedAddon, ProductAddon } from '../types/database';
+import { Product, PaymentMethod, DeliveryType, SelectedAddon, ProductAddon, PromoCode } from '../types/database';
 import { orderService } from '../services/orderService';
 import { DEFAULT_ADDONS } from '../services/mockData';
 import {
@@ -23,6 +23,9 @@ import {
   Send,
   MessageCircle,
   Share2,
+  Tag,
+  ArrowLeft,
+  Percent,
 } from 'lucide-react';
 
 interface Props {
@@ -55,11 +58,16 @@ export const StorePage: React.FC<Props> = ({ isCartOpen, setIsCartOpen }) => {
 
   // Checkout modal state
   const [isCheckoutOpen, setIsCheckoutOpen] = useState<boolean>(false);
+  const [checkoutStep, setCheckoutStep] = useState<'order_info' | 'payment_confirm'>('order_info');
   const [customerName, setCustomerName] = useState<string>('');
   const [customerPhone, setCustomerPhone] = useState<string>('');
   const [deliveryType, setDeliveryType] = useState<DeliveryType>('pickup');
   const [deliveryAddress, setDeliveryAddress] = useState<string>('');
   const [orderNotes, setOrderNotes] = useState<string>('');
+  const [promoCodeInput, setPromoCodeInput] = useState<string>('');
+  const [appliedPromo, setAppliedPromo] = useState<PromoCode | null>(null);
+  const [promoError, setPromoError] = useState<string | null>(null);
+  const [checkoutValidationError, setCheckoutValidationError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [orderSuccess, setOrderSuccess] = useState<{
     orderNumber: string;
@@ -101,6 +109,55 @@ export const StorePage: React.FC<Props> = ({ isCartOpen, setIsCartOpen }) => {
     0
   );
   const totalItemCount = onlineCart.reduce((sum, item) => sum + item.quantity, 0);
+
+  // Requirement 4: Kode promo otomatis memotong total pembelian online
+  const discountAmount = useMemo(() => {
+    if (!appliedPromo) return 0;
+    return Math.round((cartSubtotal * appliedPromo.discount_percent) / 100);
+  }, [cartSubtotal, appliedPromo]);
+
+  const finalTotal = Math.max(0, cartSubtotal - discountAmount);
+
+  const handleApplyPromo = () => {
+    setPromoError(null);
+    const code = promoCodeInput.trim().toUpperCase();
+    if (!code) {
+      setPromoError('Silakan ketikkan kode promo terlebih dahulu.');
+      return;
+    }
+    const promos = storeSettings.promo_codes || [];
+    const matched = promos.find(p => p.code.toUpperCase() === code && p.is_active);
+    if (matched) {
+      setAppliedPromo(matched);
+      setPromoError(null);
+    } else {
+      setPromoError(`Kode promo "${code}" tidak valid atau sudah tidak aktif.`);
+    }
+  };
+
+  const handleRemovePromo = () => {
+    setAppliedPromo(null);
+    setPromoCodeInput('');
+    setPromoError(null);
+  };
+
+  const handleProceedToPayment = (e: React.FormEvent) => {
+    e.preventDefault();
+    setCheckoutValidationError(null);
+    if (!customerName.trim()) {
+      setCheckoutValidationError('Silakan masukkan nama pemesan.');
+      return;
+    }
+    if (!customerPhone.trim()) {
+      setCheckoutValidationError('Silakan masukkan nomor WhatsApp pemesan.');
+      return;
+    }
+    if (deliveryType === 'spx_instant' && !deliveryAddress.trim()) {
+      setCheckoutValidationError('Silakan masukkan alamat lengkap pengiriman untuk kurir SPX Instant.');
+      return;
+    }
+    setCheckoutStep('payment_confirm');
+  };
 
   const openAddToCart = (prod: Product) => {
     setSelectedProduct(prod);
@@ -154,23 +211,29 @@ export const StorePage: React.FC<Props> = ({ isCartOpen, setIsCartOpen }) => {
         ? `🚚 Jasa Kirim: SPX Instant\n📍 Alamat Antar: ${deliveryAddress}`
         : `🏪 Pengambilan: Ambil Sendiri (Pickup di Kedai)`;
 
+    const promoSummary = appliedPromo
+      ? `\n🎟️ *Kode Promo:* ${appliedPromo.code} (Diskon ${appliedPromo.discount_percent}%)\n🏷️ *Potongan Diskon:* -Rp ${discountAmount.toLocaleString('id-ID')}`
+      : '';
+
     const text =
-      `*PESANAN ONLINE BARU - K99 KEDAI*\n` +
+      `*PESANAN ONLINE BARU - K99*\n` +
       `No. Order: *${orderNumber}*\n` +
       `Nama: *${customerName.trim()}*\n` +
       (customerPhone ? `No. WhatsApp: ${customerPhone.trim()}\n` : '') +
       `${deliveryText}\n\n` +
       `*Detail Pesanan:*\n${itemsSummary}\n\n` +
+      `Subtotal: Rp ${cartSubtotal.toLocaleString('id-ID')}` +
+      `${promoSummary}\n` +
       `*Total Tagihan:* *Rp ${total.toLocaleString('id-ID')}*\n` +
-      `*Metode Pembayaran:* QRIS\n` +
+      `*Metode Pembayaran:* QRIS K99\n` +
       (orderNotes ? `*Catatan Khusus:* ${orderNotes}\n` : '') +
-      `\n_Pesanan telah tersimpan di sistem kasir POS K99. Mohon segera diproses ya kak! Terima kasih._`;
+      `\n_Pesanan telah tersimpan di sistem kasir POS K99 & pembayaran dikonfirmasi melalui QRIS. Mohon segera diproses ya! Terima kasih._`;
 
     return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`;
   };
 
-  const handleCheckoutSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleCheckoutSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     if (!customerName.trim()) {
       alert('Silakan masukkan nama pemesan.');
       return;
@@ -196,6 +259,9 @@ export const StorePage: React.FC<Props> = ({ isCartOpen, setIsCartOpen }) => {
         delivery_type: deliveryType,
         delivery_address: deliveryType === 'spx_instant' ? deliveryAddress.trim() : undefined,
         notes: orderNotes.trim() || undefined,
+        discount: discountAmount,
+        promo_code: appliedPromo ? appliedPromo.code : undefined,
+        promo_discount_percent: appliedPromo ? appliedPromo.discount_percent : undefined,
         items: onlineCart.map(item => ({
           product_id: item.product.id,
           product_name: item.product.name,
@@ -215,8 +281,11 @@ export const StorePage: React.FC<Props> = ({ isCartOpen, setIsCartOpen }) => {
         whatsappUrl: waUrl,
       });
 
-      // Clear cart
+      // Clear cart & promo state
       clearOnlineCart();
+      setAppliedPromo(null);
+      setPromoCodeInput('');
+      setCheckoutStep('order_info');
       setIsCheckoutOpen(false);
       setIsCartOpen(false);
 
@@ -707,7 +776,12 @@ export const StorePage: React.FC<Props> = ({ isCartOpen, setIsCartOpen }) => {
 
                 <button
                   disabled={!storeSettings.is_open}
-                  onClick={() => setIsCheckoutOpen(true)}
+                  onClick={() => {
+                    setCheckoutStep('order_info');
+                    setCheckoutValidationError(null);
+                    setPromoError(null);
+                    setIsCheckoutOpen(true);
+                  }}
                   className="w-full flex items-center justify-center gap-2 rounded-xl bg-amber-500 py-3.5 text-sm font-bold text-slate-950 shadow-lg shadow-amber-500/20 hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed transition"
                 >
                   <Send className="h-4 w-4" />
@@ -719,173 +793,387 @@ export const StorePage: React.FC<Props> = ({ isCartOpen, setIsCartOpen }) => {
         </div>
       )}
 
-      {/* Checkout Modal */}
+      {/* Checkout Modal: Step 1 (Konfirmasi Pemesanan) & Step 2 (Konfirmasi Pembayaran) */}
       {isCheckoutOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-xs animate-in fade-in">
-          <div className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="flex items-center justify-between border-b border-slate-800 px-5 py-3.5 bg-slate-800/60">
-              <h3 className="font-extrabold text-sm sm:text-base text-white">Konfirmasi Pemesanan Online</h3>
+          <div className="w-full max-w-lg rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-slate-800 px-5 py-3.5 bg-slate-800/70">
+              {checkoutStep === 'payment_confirm' ? (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCheckoutStep('order_info')}
+                    className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition"
+                    title="Kembali ke Data Pemesanan"
+                  >
+                    <ArrowLeft className="h-5 w-5" />
+                  </button>
+                  <div>
+                    <h3 className="font-extrabold text-sm sm:text-base text-white">Konfirmasi Pembayaran</h3>
+                    <p className="text-[11px] text-amber-400 font-medium">Langkah 2 dari 2: Scan QRIS &amp; Rincian Akhir</p>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <h3 className="font-extrabold text-sm sm:text-base text-white">Konfirmasi Pemesanan</h3>
+                  <p className="text-[11px] text-slate-400">Langkah 1 dari 2: Data Pemesan &amp; Masukan Promo</p>
+                </div>
+              )}
               <button
                 onClick={() => setIsCheckoutOpen(false)}
-                className="rounded-lg p-1 text-slate-400 hover:text-white hover:bg-slate-700"
+                className="rounded-lg p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 transition"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
-            <form onSubmit={handleCheckoutSubmit} className="flex-1 overflow-y-auto p-5 space-y-4">
-              {/* Requirement 6: Opsi Diambil atau Jasa Kirim SPX Instant */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                  Metode Pengambilan Pesanan <span className="text-rose-400">*</span>
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setDeliveryType('pickup')}
-                    className={`flex items-center justify-center gap-2 p-3 rounded-xl border text-xs font-bold transition ${
-                      deliveryType === 'pickup'
-                        ? 'border-amber-500 bg-amber-500/10 text-amber-300'
-                        : 'border-slate-800 bg-slate-800/50 text-slate-400 hover:border-slate-700'
-                    }`}
-                  >
-                    <Coffee className="h-4 w-4" />
-                    <span>Ambil di Kedai (Pick Up)</span>
-                  </button>
+            {/* Modal Content */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              {/* STEP 1: KONFIRMASI PEMESANAN */}
+              {checkoutStep === 'order_info' && (
+                <form onSubmit={handleProceedToPayment} className="space-y-4">
+                  {checkoutValidationError && (
+                    <div className="rounded-xl bg-rose-500/10 border border-rose-500/20 p-3 text-xs text-rose-300 flex items-center gap-2">
+                      <AlertCircle className="h-4 w-4 shrink-0 text-rose-400" />
+                      <span>{checkoutValidationError}</span>
+                    </div>
+                  )}
 
-                  <button
-                    type="button"
-                    onClick={() => setDeliveryType('spx_instant')}
-                    className={`flex items-center justify-center gap-2 p-3 rounded-xl border text-xs font-bold transition ${
-                      deliveryType === 'spx_instant'
-                        ? 'border-amber-500 bg-amber-500/10 text-amber-300'
-                        : 'border-slate-800 bg-slate-800/50 text-slate-400 hover:border-slate-700'
-                    }`}
-                  >
-                    <Truck className="h-4 w-4" />
-                    <span>SPX Instant (Kirim Kurir)</span>
-                  </button>
-                </div>
-              </div>
+                  {/* Metode Pengambilan Pesanan */}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                      Metode Pengambilan Pesanan <span className="text-rose-400">*</span>
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setDeliveryType('pickup')}
+                        className={`flex items-center justify-center gap-2 p-3 rounded-xl border text-xs font-bold transition ${
+                          deliveryType === 'pickup'
+                            ? 'border-amber-500 bg-amber-500/10 text-amber-300'
+                            : 'border-slate-800 bg-slate-800/50 text-slate-400 hover:border-slate-700'
+                        }`}
+                      >
+                        <Coffee className="h-4 w-4" />
+                        <span>Ambil di Kedai (Pick Up)</span>
+                      </button>
 
-              {/* Alamat jika SPX Instant */}
-              {deliveryType === 'spx_instant' && (
-                <div className="space-y-1 rounded-xl bg-slate-950 p-3 border border-amber-500/30 animate-in fade-in">
-                  <label className="flex items-center gap-1.5 text-xs font-semibold text-amber-400">
-                    <MapPin className="h-3.5 w-3.5" />
-                    <span>Alamat Lengkap Pengiriman SPX Instant *</span>
-                  </label>
-                  <textarea
-                    rows={2}
-                    required
-                    placeholder="Contoh: Jl. Anggrek No. 12, RT 02/04, pagar hitam sebelah minimarket..."
-                    value={deliveryAddress}
-                    onChange={(e) => setDeliveryAddress(e.target.value)}
-                    className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none"
-                  />
-                  <p className="text-[10px] text-slate-400">
-                    *Ongkos kirim kurir SPX Instant dibayarkan langsung saat pesanan diantar.
-                  </p>
-                </div>
-              )}
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Nama Pemesan <span className="text-rose-400">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Nama Anda..."
-                  value={customerName}
-                  onChange={(e) => setCustomerName(e.target.value)}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs sm:text-sm text-white placeholder-slate-500 focus:border-amber-500 focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Nomor WhatsApp Pemesan <span className="text-rose-400">*</span>
-                </label>
-                <input
-                  type="tel"
-                  required
-                  placeholder="0812xxxxxxxx"
-                  value={customerPhone}
-                  onChange={(e) => setCustomerPhone(e.target.value)}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs sm:text-sm text-white placeholder-slate-500 focus:border-amber-500 focus:outline-none"
-                />
-              </div>
-
-              {/* Requirement 1: Metode pembayaran cukup QRIS saja */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-2">
-                  Metode Pembayaran (Hanya QRIS)
-                </label>
-                <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-4 text-center space-y-3">
-                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 text-amber-400 text-xs font-bold border border-amber-500/20">
-                    <QrCode className="h-3.5 w-3.5" />
-                    <span>Scan QRIS Resmi K99</span>
+                      <button
+                        type="button"
+                        onClick={() => setDeliveryType('spx_instant')}
+                        className={`flex items-center justify-center gap-2 p-3 rounded-xl border text-xs font-bold transition ${
+                          deliveryType === 'spx_instant'
+                            ? 'border-amber-500 bg-amber-500/10 text-amber-300'
+                            : 'border-slate-800 bg-slate-800/50 text-slate-400 hover:border-slate-700'
+                        }`}
+                      >
+                        <Truck className="h-4 w-4" />
+                        <span>SPX Instant (Kirim Kurir)</span>
+                      </button>
+                    </div>
                   </div>
 
-                  {/* QRIS Image display from storeSettings or default */}
-                  <div className="mx-auto w-48 h-48 bg-white p-2 rounded-2xl flex items-center justify-center shadow-md">
-                    <img
-                      src={
-                        storeSettings.qris_image_url ||
-                        'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=00020101021226500016ID.CO.QRIS.WWW011893600999000000000102159360099900000005204581253033605802ID5909K99KEDAI6007JAKARTA6304ABCD'
-                      }
-                      alt="QRIS K99 Kedai"
-                      className="w-full h-full object-contain"
+                  {/* Alamat jika SPX Instant */}
+                  {deliveryType === 'spx_instant' && (
+                    <div className="space-y-1 rounded-xl bg-slate-950 p-3 border border-amber-500/30 animate-in fade-in">
+                      <label className="flex items-center gap-1.5 text-xs font-semibold text-amber-400">
+                        <MapPin className="h-3.5 w-3.5" />
+                        <span>Alamat Lengkap Pengiriman SPX Instant *</span>
+                      </label>
+                      <textarea
+                        rows={2}
+                        required
+                        placeholder="Contoh: Jl. Anggrek No. 12, RT 02/04, pagar hitam sebelah minimarket..."
+                        value={deliveryAddress}
+                        onChange={(e) => setDeliveryAddress(e.target.value)}
+                        className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
+                      />
+                      <p className="text-[10px] text-slate-400">
+                        *Ongkos kirim kurir SPX Instant dibayarkan langsung saat pesanan diantar.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Nama Pemesan */}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      Nama Pemesan <span className="text-rose-400">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Nama lengkap Anda..."
+                      value={customerName}
+                      onChange={(e) => setCustomerName(e.target.value)}
+                      className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs sm:text-sm text-white placeholder-slate-500 focus:border-amber-500 focus:outline-none"
                     />
                   </div>
 
-                  <p className="text-[11px] text-slate-300">
-                    Mendukung semua e-wallet &amp; mobile banking (BCA, Mandiri, BRI, GoPay, ShopeePay, OVO, Dana).
-                  </p>
-                </div>
-              </div>
+                  {/* Nomor WhatsApp Pemesan */}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      Nomor WhatsApp Pemesan <span className="text-rose-400">*</span>
+                    </label>
+                    <input
+                      type="tel"
+                      required
+                      placeholder="0812xxxxxxxx"
+                      value={customerPhone}
+                      onChange={(e) => setCustomerPhone(e.target.value)}
+                      className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs sm:text-sm text-white placeholder-slate-500 focus:border-amber-500 focus:outline-none"
+                    />
+                  </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Catatan Tambahan untuk Kasir / Barista
-                </label>
-                <textarea
-                  rows={2}
-                  placeholder="Misal: Tolong pisahkan es batunya..."
-                  value={orderNotes}
-                  onChange={(e) => setOrderNotes(e.target.value)}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs sm:text-sm text-white placeholder-slate-500 focus:border-amber-500 focus:outline-none"
-                />
-              </div>
+                  {/* Requirement 2: Di bawah Nomor Whatsapp berikan kolom "Masukan Promo" */}
+                  <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-950/80 p-3.5">
+                    <div className="flex items-center justify-between">
+                      <label className="flex items-center gap-1.5 text-xs font-bold text-slate-200">
+                        <Tag className="h-3.5 w-3.5 text-amber-400" />
+                        <span>Masukan Promo</span>
+                      </label>
+                      {appliedPromo && (
+                        <span className="text-[11px] font-bold text-emerald-400 flex items-center gap-1">
+                          <CheckCircle2 className="h-3.5 w-3.5" />
+                          Diskon {appliedPromo.discount_percent}% Diterapkan
+                        </span>
+                      )}
+                    </div>
 
-              {/* Order summary box */}
-              <div className="rounded-xl bg-slate-950 p-3.5 border border-slate-800 text-xs space-y-1.5">
-                <div className="flex justify-between text-slate-400">
-                  <span>Total Item:</span>
-                  <span>{totalItemCount} item</span>
-                </div>
-                <div className="flex justify-between font-bold text-sm text-emerald-400 pt-1 border-t border-slate-800">
-                  <span>Total Tagihan:</span>
-                  <span>Rp {cartSubtotal.toLocaleString('id-ID')}</span>
-                </div>
-              </div>
+                    {!appliedPromo ? (
+                      <div className="flex gap-2">
+                        <div className="relative flex-1">
+                          <input
+                            type="text"
+                            placeholder="Ketik kode promo (misal: K99HEMAT)..."
+                            value={promoCodeInput}
+                            onChange={(e) => {
+                              setPromoCodeInput(e.target.value.toUpperCase());
+                              if (promoError) setPromoError(null);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                handleApplyPromo();
+                              }
+                            }}
+                            className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs font-mono font-bold uppercase text-amber-300 placeholder-slate-500 focus:border-amber-500 focus:outline-none"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleApplyPromo}
+                          className="px-4 py-2 rounded-xl bg-amber-500 text-xs font-bold text-slate-950 hover:bg-amber-400 transition shrink-0"
+                        >
+                          Terapkan
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-black text-emerald-400 text-xs">{appliedPromo.code}</span>
+                            <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded font-bold">
+                              Hemat {appliedPromo.discount_percent}%
+                            </span>
+                          </div>
+                          <span className="text-[11px] text-slate-300 block mt-0.5">
+                            Potongan harga: <strong className="text-emerald-400 font-semibold">-Rp {discountAmount.toLocaleString('id-ID')}</strong>
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleRemovePromo}
+                          className="text-xs font-semibold text-rose-400 hover:text-rose-300 px-2 py-1 rounded hover:bg-rose-500/10 transition"
+                        >
+                          Hapus
+                        </button>
+                      </div>
+                    )}
 
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="w-full flex items-center justify-center gap-2 rounded-xl bg-amber-500 py-3.5 text-sm font-bold text-slate-950 shadow-lg shadow-amber-500/20 hover:bg-amber-400 disabled:opacity-50 transition"
-              >
-                {isSubmitting ? (
-                  <span>Mengirim Pesanan...</span>
-                ) : (
-                  <>
-                    <MessageCircle className="h-4 w-4" />
-                    <span>KIRIM PESANAN KE KASIR &amp; WHATSAPP</span>
-                  </>
-                )}
-              </button>
-            </form>
+                    {promoError && (
+                      <p className="text-[11px] text-rose-400 flex items-center gap-1">
+                        <AlertCircle className="h-3 w-3 shrink-0" />
+                        <span>{promoError}</span>
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Catatan Tambahan */}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      Catatan Tambahan untuk Kasir / Barista (Opsional)
+                    </label>
+                    <textarea
+                      rows={2}
+                      placeholder="Misal: Tolong pisahkan es batunya..."
+                      value={orderNotes}
+                      onChange={(e) => setOrderNotes(e.target.value)}
+                      className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs sm:text-sm text-white placeholder-slate-500 focus:border-amber-500 focus:outline-none"
+                    />
+                  </div>
+
+                  {/* Summary Box */}
+                  <div className="rounded-xl bg-slate-950 p-3.5 border border-slate-800 text-xs space-y-1.5">
+                    <div className="flex justify-between text-slate-400">
+                      <span>Total Item:</span>
+                      <span>{totalItemCount} item</span>
+                    </div>
+                    <div className="flex justify-between text-slate-400">
+                      <span>Subtotal Menu:</span>
+                      <span>Rp {cartSubtotal.toLocaleString('id-ID')}</span>
+                    </div>
+                    {appliedPromo && (
+                      <div className="flex justify-between text-emerald-400 font-semibold">
+                        <span>Diskon Promo ({appliedPromo.code} - {appliedPromo.discount_percent}%):</span>
+                        <span>-Rp {discountAmount.toLocaleString('id-ID')}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between font-bold text-sm text-amber-400 pt-1.5 border-t border-slate-800">
+                      <span>Estimasi Tagihan:</span>
+                      <span>Rp {finalTotal.toLocaleString('id-ID')}</span>
+                    </div>
+                  </div>
+
+                  {/* Button Lanjut ke Konfirmasi Pembayaran */}
+                  <button
+                    type="submit"
+                    className="w-full flex items-center justify-center gap-2 rounded-xl bg-amber-500 py-3.5 text-sm font-bold text-slate-950 shadow-lg shadow-amber-500/20 hover:bg-amber-400 transition"
+                  >
+                    <span>Lanjut ke Konfirmasi Pembayaran</span>
+                    <Send className="h-4 w-4" />
+                  </button>
+                </form>
+              )}
+
+              {/* STEP 2: KONFIRMASI PEMBAYARAN BESERTA RINCIAN */}
+              {checkoutStep === 'payment_confirm' && (
+                <div className="space-y-4">
+                  {/* Metode Pembayaran (Hanya QRIS) */}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-2">
+                      Metode Pembayaran (Hanya QRIS)
+                    </label>
+                    <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-4 text-center space-y-3">
+                      <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 text-amber-400 text-xs font-bold border border-amber-500/20">
+                        <QrCode className="h-3.5 w-3.5" />
+                        <span>Scan QRIS Resmi K99</span>
+                      </div>
+
+                      {/* QRIS Image display */}
+                      <div className="mx-auto w-48 h-48 bg-white p-2 rounded-2xl flex items-center justify-center shadow-md">
+                        <img
+                          src={
+                            storeSettings.qris_image_url ||
+                            'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=00020101021226500016ID.CO.QRIS.WWW011893600999000000000102159360099900000005204581253033605802ID5909K99KEDAI6007JAKARTA6304ABCD'
+                          }
+                          alt="QRIS K99 Kedai"
+                          className="w-full h-full object-contain"
+                        />
+                      </div>
+
+                      <p className="text-[11px] text-slate-300">
+                        Mendukung semua e-wallet &amp; mobile banking (BCA, Mandiri, BRI, GoPay, ShopeePay, OVO, Dana).
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Rincian Konfirmasi Pembayaran Lengkap */}
+                  <div className="rounded-xl bg-slate-950 p-4 border border-slate-800 space-y-3">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-amber-400 border-b border-slate-800 pb-2 flex items-center justify-between">
+                      <span>Rincian Konfirmasi Pembayaran</span>
+                      <span className="text-[10px] text-slate-400 font-normal">Metode: QRIS</span>
+                    </h4>
+
+                    {/* Data Pemesan Singkat */}
+                    <div className="text-xs text-slate-300 space-y-1 pb-2 border-b border-slate-800/80">
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Pemesan:</span>
+                        <span className="font-semibold text-white">{customerName} ({customerPhone})</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Pengambilan:</span>
+                        <span className="font-semibold text-white">
+                          {deliveryType === 'spx_instant' ? 'SPX Instant (Kirim Kurir)' : 'Ambil di Kedai (Pick Up)'}
+                        </span>
+                      </div>
+                      {deliveryType === 'spx_instant' && deliveryAddress && (
+                        <div className="text-[11px] text-slate-400 pl-2">
+                          ↳ Alamat: {deliveryAddress}
+                        </div>
+                      )}
+                      {orderNotes && (
+                        <div className="text-[11px] text-slate-400 pl-2 italic">
+                          ↳ Catatan: {orderNotes}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* List Item yang Dipesan */}
+                    <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1 text-xs">
+                      {onlineCart.map((item) => (
+                        <div key={item.id} className="flex justify-between text-slate-300 pb-1 border-b border-slate-900">
+                          <div>
+                            <span className="font-semibold text-white">{item.product.name}</span>
+                            <span className="text-[10px] text-slate-400 ml-1">
+                              [{(item.temperature || 'normal').toUpperCase()}] × {item.quantity}
+                            </span>
+                            {item.addons && item.addons.length > 0 && (
+                              <div className="text-[10px] text-slate-500">
+                                + {item.addons.map(a => `${a.name} (Rp ${a.price.toLocaleString('id-ID')})`).join(', ')}
+                              </div>
+                            )}
+                          </div>
+                          <span className="font-medium text-slate-200">
+                            Rp {(calculateItemUnitPrice(item) * item.quantity).toLocaleString('id-ID')}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Rincian Kalkulasi & Potongan Promo */}
+                    <div className="pt-2 border-t border-slate-800 space-y-1.5 text-xs">
+                      <div className="flex justify-between text-slate-400">
+                        <span>Subtotal Menu:</span>
+                        <span>Rp {cartSubtotal.toLocaleString('id-ID')}</span>
+                      </div>
+
+                      {appliedPromo && (
+                        <div className="flex justify-between items-center text-emerald-400 font-semibold p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                          <span className="flex items-center gap-1 text-[11px]">
+                            <Tag className="h-3 w-3" />
+                            Diskon Kode Promo ({appliedPromo.code} • {appliedPromo.discount_percent}%):
+                          </span>
+                          <span className="font-bold text-xs">-Rp {discountAmount.toLocaleString('id-ID')}</span>
+                        </div>
+                      )}
+
+                      <div className="flex justify-between items-center font-extrabold text-base text-amber-400 pt-2 border-t border-slate-800">
+                        <span>TOTAL AKHIR:</span>
+                        <span className="text-lg">Rp {finalTotal.toLocaleString('id-ID')}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Tombol Konfirmasi Pembayaran & Kirim ke WhatsApp */}
+                  <button
+                    type="button"
+                    onClick={() => handleCheckoutSubmit()}
+                    disabled={isSubmitting}
+                    className="w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-400 py-3.5 text-sm font-black text-slate-950 shadow-xl shadow-amber-500/25 hover:brightness-110 disabled:opacity-50 transition"
+                  >
+                    {isSubmitting ? (
+                      <span>Menyimpan &amp; Mengirim Pesanan...</span>
+                    ) : (
+                      <>
+                        <MessageCircle className="h-5 w-5" />
+                        <span>KONFIRMASI PEMBAYARAN &amp; KIRIM KE WHATSAPP</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

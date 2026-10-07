@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS public.store_settings (
   receipt_header_text TEXT,
   receipt_footer_text TEXT,
   available_addons JSONB DEFAULT '[]'::jsonb,
+  promo_codes JSONB DEFAULT '[]'::jsonb,
   updated_at TIMESTAMPTZ DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
   updated_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
@@ -108,6 +109,8 @@ CREATE TABLE IF NOT EXISTS public.orders (
   payment_method TEXT DEFAULT 'cash' CHECK (payment_method IN ('cash', 'qris', 'transfer', 'other')),
   subtotal NUMERIC(12,2) NOT NULL DEFAULT 0,
   discount NUMERIC(12,2) DEFAULT 0 NOT NULL,
+  promo_code TEXT,
+  promo_discount_percent NUMERIC(5,2) DEFAULT 0,
   total NUMERIC(12,2) NOT NULL DEFAULT 0,
   stock_deducted BOOLEAN DEFAULT false NOT NULL,
   notes TEXT,

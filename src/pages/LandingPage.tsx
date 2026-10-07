@@ -37,7 +37,7 @@ export const LandingPage: React.FC<{ onOpenCart: () => void }> = ({ onOpenCart }
 
           {/* Heading */}
           <h1 className="text-4xl sm:text-6xl font-black tracking-tight text-white mb-4">
-            Selamat Datang di <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-amber-300 to-amber-500">K99 KEDAI</span>
+            Selamat Datang di <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-amber-300 to-amber-500">K99</span>
           </h1>
 
           <p className="mx-auto max-w-2xl text-base sm:text-lg text-slate-300 mb-8 leading-relaxed">

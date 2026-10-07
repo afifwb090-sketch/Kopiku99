@@ -14,6 +14,14 @@ export interface ProductAddon {
   price: number;
 }
 
+export interface PromoCode {
+  id: string;
+  code: string;
+  discount_percent: number;
+  is_active: boolean;
+  created_at: string;
+}
+
 export interface StoreSetting {
   id: string;
   store_name: string;
@@ -27,6 +35,7 @@ export interface StoreSetting {
   receipt_header_text?: string;
   receipt_footer_text?: string;
   available_addons?: ProductAddon[];
+  promo_codes?: PromoCode[];
   updated_at: string;
   updated_by?: string | null;
   created_at: string;
@@ -129,6 +138,8 @@ export interface Order {
   payment_method: PaymentMethod;
   subtotal: number;
   discount: number;
+  promo_code?: string | null;
+  promo_discount_percent?: number | null;
   total: number;
   notes?: string | null;
   created_by?: string | null;
