@@ -1,0 +1,16 @@
+{
+  "name": "K99 Kedai POS",
+  "short_name": "K99 POS",
+  "description": "Point of Sale & Online Ordering K99 Kedai",
+  "start_url": "/pos",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml"
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <rect width="512" height="512" rx="128" fill="#0f172a"/>
+  <circle cx="256" cy="256" r="180" fill="#f59e0b" fill-opacity="0.15"/>
+  <path d="M160 160h60v192h-60z" fill="#f59e0b"/>
+  <path d="M220 220l60-60h60l-70 70 80 122h-65l-45-72-20 20v52h-60V160z" fill="#f59e0b"/>
+  <path d="M360 210c0-27.6-22.4-50-50-50s-50 22.4-50 50 22.4 50 50 50 50-22.4 50-50z" fill="#38bdf8" fill-opacity="0.2"/>
+  <text x="256" y="440" font-family="sans-serif" font-weight="900" font-size="52" fill="#f8fafc" text-anchor="middle" letter-spacing="4">K99 KEDAI</text>
+</svg>
