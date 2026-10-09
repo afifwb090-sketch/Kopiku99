@@ -24,6 +24,129 @@ if (!fs.existsSync(uploadsDir)) {
 
 const dbFilePath = path.join(dataDir, 'db.json');
 
+// Seed categories & products to ensure new clients and mobile devices never get an empty store
+const initialCategories = [
+  { id: 'cat-1', name: 'Kopi & Espresso', is_active: true, sort_order: 1, legacy_id: 'LEGACY_CAT_1' },
+  { id: 'cat-2', name: 'Non-Coffee & Teh', is_active: true, sort_order: 2, legacy_id: 'LEGACY_CAT_2' },
+  { id: 'cat-3', name: 'Signature K99', is_active: true, sort_order: 3, legacy_id: 'LEGACY_CAT_3' },
+  { id: 'cat-4', name: 'Cemilan & Snack', is_active: true, sort_order: 4, legacy_id: 'LEGACY_CAT_4' },
+];
+
+const initialProducts = [
+  {
+    id: 'prod-1',
+    category_id: 'cat-1',
+    category_name: 'Kopi & Espresso',
+    name: 'Kopi Susu Aren K99',
+    description: 'Espresso blend mantap dengan susu segar lembut dan manis legit gula aren murni.',
+    price: 18000,
+    cost_price: 7500,
+    image_url: 'https://images.unsplash.com/photo-1541167760496-1628856ab772?auto=format&fit=crop&w=600&q=80',
+    is_active: true,
+    is_available: true,
+    sort_order: 1,
+    legacy_id: 'LEGACY_P_1'
+  },
+  {
+    id: 'prod-2',
+    category_id: 'cat-1',
+    category_name: 'Kopi & Espresso',
+    name: 'Americano Ice Double Shot',
+    description: 'Espresso ganda segar dengan air dingin, aroma bold, dan rasa clean.',
+    price: 15000,
+    cost_price: 4500,
+    image_url: 'https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?auto=format&fit=crop&w=600&q=80',
+    is_active: true,
+    is_available: true,
+    sort_order: 2,
+    legacy_id: 'LEGACY_P_2'
+  },
+  {
+    id: 'prod-3',
+    category_id: 'cat-1',
+    category_name: 'Kopi & Espresso',
+    name: 'Caramel Macchiato K99',
+    description: 'Espresso berpadu vanilla milk dengan drizzle saus caramel manis gurih.',
+    price: 24000,
+    cost_price: 10000,
+    image_url: 'https://images.unsplash.com/photo-1485808191679-5f86510681a2?auto=format&fit=crop&w=600&q=80',
+    is_active: true,
+    is_available: true,
+    sort_order: 3,
+    legacy_id: 'LEGACY_P_3'
+  },
+  {
+    id: 'prod-4',
+    category_id: 'cat-2',
+    category_name: 'Non-Coffee & Teh',
+    name: 'Kyoto Matcha Latte Ice',
+    description: 'Matcha murni khas Jepang dengan susu segar kental dan creamy.',
+    price: 22000,
+    cost_price: 9000,
+    image_url: 'https://images.unsplash.com/photo-1536256263959-770b48d82b0a?auto=format&fit=crop&w=600&q=80',
+    is_active: true,
+    is_available: true,
+    sort_order: 4,
+    legacy_id: 'LEGACY_P_4'
+  },
+  {
+    id: 'prod-5',
+    category_id: 'cat-2',
+    category_name: 'Non-Coffee & Teh',
+    name: 'Artisan Earl Grey Milk Tea',
+    description: 'Seduhan teh hitam beraroma bergamot dengan susu krimer lembut.',
+    price: 19000,
+    cost_price: 7000,
+    image_url: 'https://images.unsplash.com/photo-1576092768241-dec231879fc3?auto=format&fit=crop&w=600&q=80',
+    is_active: true,
+    is_available: true,
+    sort_order: 5,
+    legacy_id: 'LEGACY_P_5'
+  },
+  {
+    id: 'prod-6',
+    category_id: 'cat-3',
+    category_name: 'Signature K99',
+    name: 'K99 Butterscotch Cloud',
+    description: 'Signature kopi susu dengan sea salt butterscotch foam lembut.',
+    price: 26000,
+    cost_price: 11000,
+    image_url: 'https://images.unsplash.com/photo-1572442388796-11668a67e53d?auto=format&fit=crop&w=600&q=80',
+    is_active: true,
+    is_available: true,
+    sort_order: 6,
+    legacy_id: 'LEGACY_P_6'
+  },
+  {
+    id: 'prod-7',
+    category_id: 'cat-4',
+    category_name: 'Cemilan & Snack',
+    name: 'Croffle Crispy Sugar Glaze',
+    description: 'Croissant waffle hangat renyah di luar, lembut di dalam dengan taburan cinnamon sugar.',
+    price: 20000,
+    cost_price: 8000,
+    image_url: 'https://images.unsplash.com/photo-1568051243851-f9b136146e97?auto=format&fit=crop&w=600&q=80',
+    is_active: true,
+    is_available: true,
+    sort_order: 7,
+    legacy_id: 'LEGACY_P_7'
+  },
+  {
+    id: 'prod-8',
+    category_id: 'cat-4',
+    category_name: 'Cemilan & Snack',
+    name: 'French Fries K99 Truffle Mayo',
+    description: 'Kentang goreng renyah bumbu gurih disajikan dengan cocolan saus truffle mayo.',
+    price: 18000,
+    cost_price: 7000,
+    image_url: 'https://images.unsplash.com/photo-1573080496219-bb080dd4f877?auto=format&fit=crop&w=600&q=80',
+    is_active: true,
+    is_available: true,
+    sort_order: 8,
+    legacy_id: 'LEGACY_P_8'
+  }
+];
+
 // Initial seed data
 const initialDb = {
   store: {
@@ -58,8 +181,8 @@ const initialDb = {
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   },
-  categories: [],
-  products: [],
+  categories: initialCategories,
+  products: initialProducts,
   ingredients: [],
   recipes: [],
   orders: [],
@@ -67,12 +190,18 @@ const initialDb = {
   stock_movements: [],
 };
 
-function readDb() {
+function loadDbFromDisk() {
   try {
     if (fs.existsSync(dbFilePath)) {
       const content = fs.readFileSync(dbFilePath, 'utf-8');
       const parsed = JSON.parse(content);
-      return { ...initialDb, ...parsed };
+      return {
+        ...initialDb,
+        ...parsed,
+        store: { ...initialDb.store, ...(parsed.store || {}) },
+        categories: (parsed.categories && parsed.categories.length > 0) ? parsed.categories : initialCategories,
+        products: (parsed.products && parsed.products.length > 0) ? parsed.products : initialProducts,
+      };
     }
   } catch (err) {
     console.error('Error reading db.json, using fallback:', err);
@@ -80,7 +209,15 @@ function readDb() {
   return initialDb;
 }
 
+// In-memory database cache for instant, zero-latency consistency across devices
+let currentDb = loadDbFromDisk();
+
+function readDb() {
+  return currentDb;
+}
+
 function writeDb(data: any) {
+  currentDb = data;
   try {
     fs.writeFileSync(dbFilePath, JSON.stringify(data, null, 2), 'utf-8');
   } catch (err) {
@@ -88,17 +225,31 @@ function writeDb(data: any) {
   }
 }
 
-// Initialize db file if missing
-if (!fs.existsSync(dbFilePath)) {
-  writeDb(initialDb);
-}
+// Ensure disk has seed data
+writeDb(currentDb);
 
 // Middleware
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
+// CORS and Cache Control - ensure browser never caches API responses
+app.use((req: Request, res: Response, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  if (req.path.startsWith('/api')) {
+    res.header('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.header('Pragma', 'no-cache');
+    res.header('Expires', '0');
+  }
+  next();
+});
+
 // Static uploads serving
-app.use('/uploads', express.static(uploadsDir));
+app.use('/uploads', express.static(uploadsDir, { maxAge: '7d' }));
 
 // Real-time SSE Clients
 let sseClients: Response[] = [];
@@ -139,77 +290,69 @@ app.get('/api/events', (req: Request, res: Response) => {
 
 // 1. Store Settings
 app.get('/api/store', (req: Request, res: Response) => {
-  const db = readDb();
-  res.json(db.store);
+  res.json(currentDb.store);
 });
 
 app.put('/api/store', (req: Request, res: Response) => {
-  const db = readDb();
-  const current = db.store || initialDb.store;
   const updated = {
-    ...current,
+    ...currentDb.store,
     ...req.body,
     updated_at: new Date().toISOString(),
   };
-  db.store = updated;
-  writeDb(db);
+  currentDb.store = updated;
+  writeDb(currentDb);
   broadcastEvent('STORE_STATUS_CHANGED', updated);
   res.json(updated);
 });
 
 // 2. Categories
 app.get('/api/categories', (req: Request, res: Response) => {
-  const db = readDb();
-  res.json(db.categories || []);
+  res.json(currentDb.categories || []);
 });
 
 app.post('/api/categories', (req: Request, res: Response) => {
-  const db = readDb();
   const newCat = {
     ...req.body,
     id: req.body.id || 'cat-' + Math.random().toString(36).substring(2, 9),
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
-  db.categories = [newCat, ...(db.categories || [])];
-  writeDb(db);
-  broadcastEvent('CATEGORIES_CHANGED', db.categories);
+  currentDb.categories = [newCat, ...(currentDb.categories || [])];
+  writeDb(currentDb);
+  broadcastEvent('CATEGORIES_CHANGED', currentDb.categories);
   res.status(201).json(newCat);
 });
 
 app.put('/api/categories/:id', (req: Request, res: Response) => {
-  const db = readDb();
   const id = req.params.id;
-  const cats = db.categories || [];
+  const cats = currentDb.categories || [];
   const idx = cats.findIndex((c: any) => c.id === id);
   if (idx !== -1) {
     cats[idx] = { ...cats[idx], ...req.body, updated_at: new Date().toISOString() };
-    db.categories = cats;
-    writeDb(db);
-    broadcastEvent('CATEGORIES_CHANGED', db.categories);
+    currentDb.categories = cats;
+    writeDb(currentDb);
+    broadcastEvent('CATEGORIES_CHANGED', currentDb.categories);
     return res.json(cats[idx]);
   }
   res.status(404).json({ error: 'Category not found' });
 });
 
 app.delete('/api/categories/:id', (req: Request, res: Response) => {
-  const db = readDb();
   const id = req.params.id;
-  db.categories = (db.categories || []).filter((c: any) => c.id !== id);
-  writeDb(db);
-  broadcastEvent('CATEGORIES_CHANGED', db.categories);
+  currentDb.categories = (currentDb.categories || []).filter((c: any) => c.id !== id);
+  writeDb(currentDb);
+  broadcastEvent('CATEGORIES_CHANGED', currentDb.categories);
   res.json({ success: true });
 });
 
 app.post('/api/categories/sync', (req: Request, res: Response) => {
-  const db = readDb();
   const incoming = Array.isArray(req.body) ? req.body : [];
-  if (incoming.length > 0 && (!db.categories || db.categories.length === 0)) {
-    db.categories = incoming;
-    writeDb(db);
-    broadcastEvent('CATEGORIES_CHANGED', db.categories);
+  if (incoming.length > 0 && (!currentDb.categories || currentDb.categories.length === 0)) {
+    currentDb.categories = incoming;
+    writeDb(currentDb);
+    broadcastEvent('CATEGORIES_CHANGED', currentDb.categories);
   }
-  res.json(db.categories || []);
+  res.json(currentDb.categories || []);
 });
 
 // 3. Products
@@ -553,32 +696,44 @@ app.delete('/api/payables/:id', (req: Request, res: Response) => {
 // 7. Upload Image Endpoint (QRIS, logo, products)
 app.post('/api/upload', (req: Request, res: Response) => {
   try {
-    const { data, filename } = req.body;
-    if (!data) {
+    const { data } = req.body;
+    if (!data || typeof data !== 'string') {
       return res.status(400).json({ error: 'No image data provided' });
     }
 
-    // Match base64 data
-    const matches = data.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
-    if (!matches || matches.length !== 3) {
-      // If it's already a URL, return as is
-      if (typeof data === 'string' && data.startsWith('http')) {
-        return res.json({ url: data });
-      }
-      return res.status(400).json({ error: 'Invalid base64 image data' });
+    // If it's already an HTTP URL or local uploads path, return as is
+    if (data.startsWith('http://') || data.startsWith('https://') || data.startsWith('/uploads/')) {
+      return res.json({ url: data });
     }
 
-    const mime = matches[1];
-    const base64Data = matches[2];
+    // Cleanly extract base64 data and mime type
+    let mime = 'image/png';
+    let base64Clean = data;
+
+    if (data.includes(';base64,')) {
+      const parts = data.split(';base64,');
+      const mimePart = parts[0].replace(/^data:/, '');
+      if (mimePart) mime = mimePart;
+      base64Clean = parts[1] || '';
+    }
+
+    // Strip out all whitespace/newlines
+    base64Clean = base64Clean.replace(/\s+/g, '');
+
+    if (!base64Clean) {
+      return res.status(400).json({ error: 'Empty image content' });
+    }
+
     let ext = 'png';
     if (mime.includes('jpeg') || mime.includes('jpg')) ext = 'jpg';
     else if (mime.includes('webp')) ext = 'webp';
     else if (mime.includes('svg')) ext = 'svg';
+    else if (mime.includes('gif')) ext = 'gif';
 
-    const safeName = `${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${ext}`;
+    const safeName = `img-${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${ext}`;
     const filePath = path.join(uploadsDir, safeName);
 
-    fs.writeFileSync(filePath, Buffer.from(base64Data, 'base64'));
+    fs.writeFileSync(filePath, Buffer.from(base64Clean, 'base64'));
 
     const publicUrl = `/uploads/${safeName}`;
     return res.json({ url: publicUrl });
@@ -592,7 +747,12 @@ app.post('/api/upload', (req: Request, res: Response) => {
 async function startServer() {
   if (!isProd) {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        watch: {
+          ignored: ['**/data/**', '**/public/uploads/**', '**/*.json'],
+        },
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);

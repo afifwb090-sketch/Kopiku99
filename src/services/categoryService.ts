@@ -19,24 +19,13 @@ export const getCachedCategories = (): Category[] => {
 export const categoryService = {
   async getCategories(onlyActive = false): Promise<Category[]> {
     try {
-      const res = await fetch('/api/categories');
+      const res = await fetch(`/api/categories?_t=${Date.now()}`, { cache: 'no-store' });
       if (res.ok) {
         let serverCats = (await res.json()) as Category[];
-        if (serverCats.length === 0) {
-          const cached = getCachedCategories();
-          if (cached && cached.length > 0) {
-            try {
-              const syncRes = await fetch('/api/categories/sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(cached),
-              });
-              if (syncRes.ok) serverCats = await syncRes.json();
-            } catch {}
-          }
-        }
         if (serverCats && serverCats.length > 0) {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(serverCats));
+          try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(serverCats));
+          } catch {}
           return onlyActive ? serverCats.filter(c => c.is_active) : serverCats;
         }
       }

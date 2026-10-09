@@ -1,0 +1,211 @@
+{
+  "store": {
+    "id": "00000000-0000-0000-0000-000000000001",
+    "store_name": "K99 Kedai Kopi &",
+    "is_open": true,
+    "address": "Jl. Pemuda No. 99, Indonesia",
+    "phone": "0812-9900-1999",
+    "description": "Kedai kopi & teh santai dengan cita rasa otentik dan aneka cemilan lezat.",
+    "qris_image_url": "https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=00020101021226500016ID.CO.QRIS.WWW011893600999000000000102159360099900000005204581253033605802ID5909K99KEDAI6007JAKARTA6304ABCD",
+    "receipt_logo_url": "/icon.svg",
+    "receipt_show_logo": true,
+    "receipt_header_text": "K99 KEDAI KOPI & TEH",
+    "receipt_footer_text": "Terima kasih telah berkunjung ke K99!\nFollow Instagram @k99kedai\n#K99SemuaSuka",
+    "available_addons": [
+      {
+        "id": "addon-1",
+        "name": "Extra Shot Espresso",
+        "price": 5000
+      },
+      {
+        "id": "addon-2",
+        "name": "Gula Aren Tambahan",
+        "price": 3000
+      },
+      {
+        "id": "addon-3",
+        "name": "Grass Jelly / Cincau",
+        "price": 4000
+      },
+      {
+        "id": "addon-4",
+        "name": "Oat Milk Upgrade",
+        "price": 7000
+      },
+      {
+        "id": "addon-5",
+        "name": "Whipped Cream",
+        "price": 4000
+      }
+    ],
+    "promo_codes": [
+      {
+        "id": "promo-91i04af",
+        "code": "IOOOOO",
+        "discount_percent": 10,
+        "min_purchase": 30000,
+        "is_active": true,
+        "created_at": "2026-10-09T10:36:18.673Z"
+      },
+      {
+        "id": "promo-1",
+        "code": "K99HEMAT",
+        "discount_percent": 10,
+        "min_purchase": 25000,
+        "is_active": true,
+        "created_at": "2026-10-09T09:55:00.227Z"
+      }
+    ],
+    "created_at": "2026-10-09T09:55:00.228Z",
+    "updated_at": "2026-10-09T11:55:24.896Z"
+  },
+  "categories": [
+    {
+      "id": "cat-1",
+      "name": "Kopi & Espresso",
+      "is_active": true,
+      "sort_order": 1,
+      "legacy_id": "LEGACY_CAT_1"
+    },
+    {
+      "id": "cat-2",
+      "name": "Non-Coffee & Teh",
+      "is_active": true,
+      "sort_order": 2,
+      "legacy_id": "LEGACY_CAT_2"
+    },
+    {
+      "id": "cat-3",
+      "name": "Signature K99",
+      "is_active": true,
+      "sort_order": 3,
+      "legacy_id": "LEGACY_CAT_3"
+    },
+    {
+      "id": "cat-4",
+      "name": "Cemilan & Snack",
+      "is_active": true,
+      "sort_order": 4,
+      "legacy_id": "LEGACY_CAT_4"
+    }
+  ],
+  "products": [
+    {
+      "id": "prod-1",
+      "category_id": "cat-1",
+      "category_name": "Kopi & Espresso",
+      "name": "Kopi Susu Aren K99",
+      "description": "Espresso blend mantap dengan susu segar lembut dan manis legit gula aren murni.",
+      "price": 18000,
+      "cost_price": 7500,
+      "image_url": "https://images.unsplash.com/photo-1541167760496-1628856ab772?auto=format&fit=crop&w=600&q=80",
+      "is_active": true,
+      "is_available": true,
+      "sort_order": 1,
+      "legacy_id": "LEGACY_P_1"
+    },
+    {
+      "id": "prod-2",
+      "category_id": "cat-1",
+      "category_name": "Kopi & Espresso",
+      "name": "Americano Ice Double Shot",
+      "description": "Espresso ganda segar dengan air dingin, aroma bold, dan rasa clean.",
+      "price": 15000,
+      "cost_price": 4500,
+      "image_url": "https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?auto=format&fit=crop&w=600&q=80",
+      "is_active": true,
+      "is_available": true,
+      "sort_order": 2,
+      "legacy_id": "LEGACY_P_2"
+    },
+    {
+      "id": "prod-3",
+      "category_id": "cat-1",
+      "category_name": "Kopi & Espresso",
+      "name": "Caramel Macchiato K99",
+      "description": "Espresso berpadu vanilla milk dengan drizzle saus caramel manis gurih.",
+      "price": 24000,
+      "cost_price": 10000,
+      "image_url": "https://images.unsplash.com/photo-1485808191679-5f86510681a2?auto=format&fit=crop&w=600&q=80",
+      "is_active": true,
+      "is_available": true,
+      "sort_order": 3,
+      "legacy_id": "LEGACY_P_3"
+    },
+    {
+      "id": "prod-4",
+      "category_id": "cat-2",
+      "category_name": "Non-Coffee & Teh",
+      "name": "Kyoto Matcha Latte Ice",
+      "description": "Matcha murni khas Jepang dengan susu segar kental dan creamy.",
+      "price": 22000,
+      "cost_price": 9000,
+      "image_url": "https://images.unsplash.com/photo-1536256263959-770b48d82b0a?auto=format&fit=crop&w=600&q=80",
+      "is_active": true,
+      "is_available": true,
+      "sort_order": 4,
+      "legacy_id": "LEGACY_P_4"
+    },
+    {
+      "id": "prod-5",
+      "category_id": "cat-2",
+      "category_name": "Non-Coffee & Teh",
+      "name": "Artisan Earl Grey Milk Tea",
+      "description": "Seduhan teh hitam beraroma bergamot dengan susu krimer lembut.",
+      "price": 19000,
+      "cost_price": 7000,
+      "image_url": "https://images.unsplash.com/photo-1576092768241-dec231879fc3?auto=format&fit=crop&w=600&q=80",
+      "is_active": true,
+      "is_available": true,
+      "sort_order": 5,
+      "legacy_id": "LEGACY_P_5"
+    },
+    {
+      "id": "prod-6",
+      "category_id": "cat-3",
+      "category_name": "Signature K99",
+      "name": "K99 Butterscotch Cloud",
+      "description": "Signature kopi susu dengan sea salt butterscotch foam lembut.",
+      "price": 26000,
+      "cost_price": 11000,
+      "image_url": "https://images.unsplash.com/photo-1572442388796-11668a67e53d?auto=format&fit=crop&w=600&q=80",
+      "is_active": true,
+      "is_available": true,
+      "sort_order": 6,
+      "legacy_id": "LEGACY_P_6"
+    },
+    {
+      "id": "prod-7",
+      "category_id": "cat-4",
+      "category_name": "Cemilan & Snack",
+      "name": "Croffle Crispy Sugar Glaze",
+      "description": "Croissant waffle hangat renyah di luar, lembut di dalam dengan taburan cinnamon sugar.",
+      "price": 20000,
+      "cost_price": 8000,
+      "image_url": "https://images.unsplash.com/photo-1568051243851-f9b136146e97?auto=format&fit=crop&w=600&q=80",
+      "is_active": true,
+      "is_available": true,
+      "sort_order": 7,
+      "legacy_id": "LEGACY_P_7"
+    },
+    {
+      "id": "prod-8",
+      "category_id": "cat-4",
+      "category_name": "Cemilan & Snack",
+      "name": "French Fries K99 Truffle Mayo",
+      "description": "Kentang goreng renyah bumbu gurih disajikan dengan cocolan saus truffle mayo.",
+      "price": 18000,
+      "cost_price": 7000,
+      "image_url": "https://images.unsplash.com/photo-1573080496219-bb080dd4f877?auto=format&fit=crop&w=600&q=80",
+      "is_active": true,
+      "is_available": true,
+      "sort_order": 8,
+      "legacy_id": "LEGACY_P_8"
+    }
+  ],
+  "ingredients": [],
+  "recipes": [],
+  "orders": [],
+  "payables": [],
+  "stock_movements": []
+}

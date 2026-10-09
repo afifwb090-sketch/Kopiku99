@@ -1084,12 +1084,17 @@ export const StorePage: React.FC<Props> = ({ isCartOpen, setIsCartOpen }) => {
                       {/* QRIS Image display */}
                       <div className="mx-auto w-48 h-48 bg-white p-2 rounded-2xl flex items-center justify-center shadow-md">
                         <img
+                          key={storeSettings.qris_image_url}
                           src={
                             storeSettings.qris_image_url ||
                             'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=00020101021226500016ID.CO.QRIS.WWW011893600999000000000102159360099900000005204581253033605802ID5909K99KEDAI6007JAKARTA6304ABCD'
                           }
                           alt="QRIS K99 Kedai"
                           className="w-full h-full object-contain"
+                          onError={(e) => {
+                            (e.currentTarget as HTMLImageElement).src =
+                              'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=00020101021226500016ID.CO.QRIS.WWW011893600999000000000102159360099900000005204581253033605802ID5909K99KEDAI6007JAKARTA6304ABCD';
+                          }}
                         />
                       </div>
 

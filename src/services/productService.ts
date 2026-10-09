@@ -21,34 +21,19 @@ export const productService = {
     // 1. Try server API first (sync across all devices)
     try {
       const params = new URLSearchParams();
+      params.set('_t', Date.now().toString());
       if (options?.categoryId) params.set('categoryId', options.categoryId);
       if (options?.onlyActive) params.set('onlyActive', 'true');
       if (options?.onlyAvailable) params.set('onlyAvailable', 'true');
 
-      const url = `/api/products${params.toString() ? '?' + params.toString() : ''}`;
-      const res = await fetch(url);
+      const url = `/api/products?${params.toString()}`;
+      const res = await fetch(url, { cache: 'no-store' });
       if (res.ok) {
-        let serverProducts = (await res.json()) as Product[];
-
-        // If server has no products, check if client has cached products from desktop to sync up
-        if (serverProducts.length === 0) {
-          const cached = getCachedProducts();
-          if (cached && cached.length > 0) {
-            try {
-              const syncRes = await fetch('/api/products/sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(cached),
-              });
-              if (syncRes.ok) {
-                serverProducts = await syncRes.json();
-              }
-            } catch {}
-          }
-        }
-
-        if (serverProducts && serverProducts.length > 0) {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(serverProducts));
+        const serverProducts = (await res.json()) as Product[];
+        if (Array.isArray(serverProducts)) {
+          try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(serverProducts));
+          } catch {}
           return serverProducts;
         }
       }
@@ -75,7 +60,9 @@ export const productService = {
             ...item,
             category_name: item.categories?.name || undefined,
           })) as Product[];
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(mapped));
+          try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(mapped));
+          } catch {}
           return mapped;
         }
       } catch (err) {
@@ -107,15 +94,18 @@ export const productService = {
 
     // Save to server API first
     try {
-      const res = await fetch('/api/products', {
+      const res = await fetch(`/api/products?_t=${Date.now()}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
         body: JSON.stringify(newProduct),
       });
       if (res.ok) {
         const serverProd = await res.json();
         const current = getCachedProducts();
-        localStorage.setItem(STORAGE_KEY, JSON.stringify([...current, serverProd]));
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify([...current, serverProd]));
+        } catch {}
         return serverProd;
       }
     } catch (err) {
@@ -151,16 +141,19 @@ export const productService = {
 
     const current = getCachedProducts();
     const updated = [...current, newProduct];
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    } catch {}
     return newProduct;
   },
 
   async updateProduct(id: string, updates: Partial<Product>): Promise<Product | null> {
     // 1. Try server API first
     try {
-      const res = await fetch(`/api/products/${id}`, {
+      const res = await fetch(`/api/products/${id}?_t=${Date.now()}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
         body: JSON.stringify(updates),
       });
       if (res.ok) {
@@ -169,7 +162,9 @@ export const productService = {
         const idx = current.findIndex(p => p.id === id);
         if (idx !== -1) {
           current[idx] = serverProd;
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
+          try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
+          } catch {}
         }
         return serverProd;
       }
@@ -203,7 +198,9 @@ export const productService = {
     if (idx !== -1) {
       const updated = { ...current[idx], ...updates, updated_at: new Date().toISOString() };
       current[idx] = updated;
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
+      } catch {}
       return updated;
     }
     return null;
@@ -212,11 +209,16 @@ export const productService = {
   async deleteProduct(id: string): Promise<boolean> {
     // 1. Try server API first
     try {
-      const res = await fetch(`/api/products/${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/products/${id}?_t=${Date.now()}`, {
+        method: 'DELETE',
+        cache: 'no-store',
+      });
       if (res.ok) {
         const current = getCachedProducts();
         const filtered = current.filter(p => p.id !== id);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
+        } catch {}
         return true;
       }
     } catch (err) {
@@ -234,15 +236,46 @@ export const productService = {
 
     const current = getCachedProducts();
     const filtered = current.filter(p => p.id !== id);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
+    } catch {}
     return true;
   },
 
   async uploadProductImage(file: File): Promise<string | null> {
-    // Read file as base64 data URL
+    // Read and optimize/compress image to avoid quota crashes
     const base64Data: string = await new Promise((resolve) => {
       const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result as string);
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          // Max dimension 1000px for speedy uploads & crystal clear QRIS
+          const maxDim = 1000;
+          let width = img.width;
+          let height = img.height;
+          if (width > maxDim || height > maxDim) {
+            if (width > height) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            } else {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, width, height);
+            resolve(canvas.toDataURL('image/png', 0.9));
+            return;
+          }
+          resolve(e.target?.result as string || '');
+        };
+        img.onerror = () => resolve(e.target?.result as string || '');
+        img.src = e.target?.result as string;
+      };
       reader.onerror = () => resolve('');
       reader.readAsDataURL(file);
     });
@@ -251,9 +284,10 @@ export const productService = {
 
     // 1. Try server API upload (saves file on disk, prevents 5MB localStorage crash)
     try {
-      const res = await fetch('/api/upload', {
+      const res = await fetch(`/api/upload?_t=${Date.now()}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
         body: JSON.stringify({ data: base64Data, filename: file.name }),
       });
       if (res.ok) {
@@ -266,7 +300,7 @@ export const productService = {
 
     if (supabase) {
       try {
-        const fileExt = file.name.split('.').pop();
+        const fileExt = file.name.split('.').pop() || 'png';
         const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
         const filePath = `products/${fileName}`;
 
@@ -285,7 +319,7 @@ export const productService = {
       }
     }
 
-    // Fallback: base64 Data URL
+    // Fallback: Return compressed base64 if server was temporarily unavailable
     return base64Data;
   },
 };

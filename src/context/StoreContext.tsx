@@ -91,7 +91,35 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   useEffect(() => {
     refreshData();
 
-    // Subscribe to Realtime store status
+    // Realtime SSE connection for multi-device cross-sync (Desktop <-> Mobile)
+    let sseSource: EventSource | null = null;
+    if (typeof window !== 'undefined' && 'EventSource' in window) {
+      try {
+        sseSource = new EventSource('/api/events');
+        sseSource.addEventListener('STORE_STATUS_CHANGED', (event) => {
+          try {
+            const parsed = JSON.parse(event.data);
+            if (parsed.data) setStoreSettings(parsed.data);
+          } catch {}
+        });
+        sseSource.addEventListener('PRODUCTS_CHANGED', (event) => {
+          try {
+            const parsed = JSON.parse(event.data);
+            if (Array.isArray(parsed.data)) setProducts(parsed.data);
+          } catch {}
+        });
+        sseSource.addEventListener('CATEGORIES_CHANGED', (event) => {
+          try {
+            const parsed = JSON.parse(event.data);
+            if (Array.isArray(parsed.data)) setCategories(parsed.data);
+          } catch {}
+        });
+      } catch (e) {
+        console.warn('SSE connection initialization error:', e);
+      }
+    }
+
+    // Subscribe to storeService
     const unsubStore = storeService.subscribe((updated) => {
       setStoreSettings(updated);
     });
@@ -118,15 +146,37 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
     });
 
+    // Periodic background sync every 4s to guarantee devices never desync
+    const syncInterval = setInterval(async () => {
+      try {
+        const [settings, cats, prods] = await Promise.all([
+          storeService.getSettings(),
+          categoryService.getCategories(),
+          productService.getProducts(),
+        ]);
+        setStoreSettings(settings);
+        if (cats && cats.length > 0) setCategories(cats);
+        if (prods && prods.length > 0) setProducts(prods);
+      } catch {}
+    }, 4000);
+
     return () => {
+      if (sseSource) sseSource.close();
       unsubStore();
       unsubOrders();
+      clearInterval(syncInterval);
     };
   }, [refreshData]);
 
   const toggleStoreStatus = async (isOpen: boolean, updatedBy?: string) => {
-    const updated = await storeService.updateStatus(isOpen, updatedBy);
-    setStoreSettings(updated);
+    // Optimistic UI update immediately
+    setStoreSettings((prev) => ({ ...prev, is_open: isOpen }));
+    try {
+      const updated = await storeService.updateStatus(isOpen, updatedBy);
+      setStoreSettings(updated);
+    } catch (err) {
+      console.error('Error toggling store status:', err);
+    }
   };
 
   const addToOnlineCart = (

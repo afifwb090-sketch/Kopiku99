@@ -22,9 +22,9 @@ export const getCachedStoreSettings = (): StoreSetting => {
 
 export const storeService = {
   async getSettings(): Promise<StoreSetting> {
-    // 1. Try server API first (primary sync across devices)
+    // 1. Try server API first (primary sync across devices) with cache busting
     try {
-      const res = await fetch('/api/store');
+      const res = await fetch(`/api/store?_t=${Date.now()}`, { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
         localStorage.setItem(STORE_STORAGE_KEY, JSON.stringify(data));
@@ -65,23 +65,28 @@ export const storeService = {
     };
 
     // Save to local cache first
-    localStorage.setItem(STORE_STORAGE_KEY, JSON.stringify(updated));
+    try {
+      localStorage.setItem(STORE_STORAGE_KEY, JSON.stringify(updated));
+    } catch {}
 
     // Broadcast across tabs/windows locally immediately
     if (realtimeBus) {
       realtimeBus.postMessage({ type: 'STORE_STATUS_CHANGED', data: updated });
     }
 
-    // Update server API for all devices
+    // Update server API for all devices with cache-busting
     try {
-      const res = await fetch('/api/store', {
+      const res = await fetch(`/api/store?_t=${Date.now()}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
         body: JSON.stringify({ is_open: isOpen, updated_by: updatedBy || null }),
       });
       if (res.ok) {
         const serverData = await res.json();
-        localStorage.setItem(STORE_STORAGE_KEY, JSON.stringify(serverData));
+        try {
+          localStorage.setItem(STORE_STORAGE_KEY, JSON.stringify(serverData));
+        } catch {}
         return serverData;
       }
     } catch (err) {
@@ -121,21 +126,27 @@ export const storeService = {
       updated_at: new Date().toISOString(),
     };
 
-    localStorage.setItem(STORE_STORAGE_KEY, JSON.stringify(updated));
+    try {
+      localStorage.setItem(STORE_STORAGE_KEY, JSON.stringify(updated));
+    } catch {}
+
     if (realtimeBus) {
       realtimeBus.postMessage({ type: 'STORE_STATUS_CHANGED', data: updated });
     }
 
-    // Sync to server API
+    // Sync to server API with cache-busting
     try {
-      const res = await fetch('/api/store', {
+      const res = await fetch(`/api/store?_t=${Date.now()}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
         body: JSON.stringify(info),
       });
       if (res.ok) {
         const serverData = await res.json();
-        localStorage.setItem(STORE_STORAGE_KEY, JSON.stringify(serverData));
+        try {
+          localStorage.setItem(STORE_STORAGE_KEY, JSON.stringify(serverData));
+        } catch {}
         return serverData;
       }
     } catch (err) {

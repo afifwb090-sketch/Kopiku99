@@ -1281,12 +1281,17 @@ export const PosPage: React.FC = () => {
                 <div className="text-center p-3 rounded-xl bg-slate-950 border border-slate-800">
                   <div className="w-28 h-28 mx-auto bg-white p-1 rounded-lg">
                     <img
+                      key={storeSettings.qris_image_url}
                       src={
                         storeSettings.qris_image_url ||
                         'https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=K99-QRIS-DYNAMIC'
                       }
                       alt="QRIS"
                       className="w-full h-full object-contain"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLImageElement).src =
+                          'https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=K99-QRIS-DYNAMIC';
+                      }}
                     />
                   </div>
                   <p className="text-xs text-slate-400 mt-2">Pastikan pelanggan sudah scan dan berhasil transfer QRIS.</p>

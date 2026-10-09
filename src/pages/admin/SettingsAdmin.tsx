@@ -116,27 +116,32 @@ export const SettingsAdmin: React.FC = () => {
   const [migrationResultB, setMigrationResultB] = useState<MigrationSummary | null>(null);
   const [errorB, setErrorB] = useState<string | null>(null);
 
-  const hasLoadedInitialSettings = React.useRef(false);
+  const isUserEditingStore = React.useRef(false);
+  const isUserEditingInvoice = React.useRef(false);
 
   useEffect(() => {
-    // Only load initial form fields once so user typing is NEVER erased or reverted!
-    if (!hasLoadedInitialSettings.current && storeSettings.store_name) {
+    if (!isUserEditingStore.current && storeSettings.store_name) {
       setStoreName(storeSettings.store_name);
       setAddress(storeSettings.address || '');
       setPhone(storeSettings.phone || '');
       setDescription(storeSettings.description || '');
-      setQrisImageUrl(storeSettings.qris_image_url || '');
-      setReceiptLogoUrl(storeSettings.receipt_logo_url || '');
+    }
+    if (!isUserEditingInvoice.current) {
+      if (storeSettings.qris_image_url !== undefined) {
+        setQrisImageUrl(storeSettings.qris_image_url || '');
+      }
+      if (storeSettings.receipt_logo_url !== undefined) {
+        setReceiptLogoUrl(storeSettings.receipt_logo_url || '');
+      }
       setReceiptShowLogo(storeSettings.receipt_show_logo !== false);
-      setReceiptHeaderText(storeSettings.receipt_header_text || storeSettings.store_name);
+      setReceiptHeaderText(storeSettings.receipt_header_text || storeSettings.store_name || '');
       setReceiptFooterText(storeSettings.receipt_footer_text || '');
-      if (storeSettings.available_addons && storeSettings.available_addons.length > 0) {
-        setAddonsList(storeSettings.available_addons);
-      }
-      if (storeSettings.promo_codes) {
-        setPromoCodesList(storeSettings.promo_codes);
-      }
-      hasLoadedInitialSettings.current = true;
+    }
+    if (storeSettings.available_addons && storeSettings.available_addons.length > 0) {
+      setAddonsList(storeSettings.available_addons);
+    }
+    if (storeSettings.promo_codes) {
+      setPromoCodesList(storeSettings.promo_codes);
     }
   }, [storeSettings]);
 
@@ -154,12 +159,19 @@ export const SettingsAdmin: React.FC = () => {
     setIsSavingStore(true);
     setStoreSavedMsg(null);
     try {
-      await storeService.updateStoreInfo({
+      const updated = await storeService.updateStoreInfo({
         store_name: storeName.trim(),
         address: address.trim(),
         phone: phone.trim(),
         description: description.trim(),
       });
+      isUserEditingStore.current = false;
+      if (updated) {
+        setStoreName(updated.store_name);
+        setAddress(updated.address || '');
+        setPhone(updated.phone || '');
+        setDescription(updated.description || '');
+      }
       await refreshData();
       setStoreSavedMsg('Informasi kedai berhasil disimpan!');
       setTimeout(() => setStoreSavedMsg(null), 4000);
@@ -175,13 +187,21 @@ export const SettingsAdmin: React.FC = () => {
     setIsSavingInvoice(true);
     setInvoiceSavedMsg(null);
     try {
-      await storeService.updateStoreInfo({
+      const updated = await storeService.updateStoreInfo({
         qris_image_url: qrisImageUrl.trim() || undefined,
         receipt_logo_url: receiptLogoUrl.trim() || undefined,
         receipt_show_logo: receiptShowLogo,
         receipt_header_text: receiptHeaderText.trim() || undefined,
         receipt_footer_text: receiptFooterText.trim() || undefined,
       });
+      isUserEditingInvoice.current = false;
+      if (updated) {
+        setQrisImageUrl(updated.qris_image_url || '');
+        setReceiptLogoUrl(updated.receipt_logo_url || '');
+        setReceiptShowLogo(updated.receipt_show_logo !== false);
+        setReceiptHeaderText(updated.receipt_header_text || '');
+        setReceiptFooterText(updated.receipt_footer_text || '');
+      }
       await refreshData();
       setInvoiceSavedMsg('Pengaturan QRIS & Struk Invoice berhasil disimpan!');
       setTimeout(() => setInvoiceSavedMsg(null), 4000);
@@ -204,11 +224,19 @@ export const SettingsAdmin: React.FC = () => {
       if (url) {
         if (target === 'qris') {
           setQrisImageUrl(url);
-          await storeService.updateStoreInfo({ qris_image_url: url });
+          isUserEditingInvoice.current = false;
+          const updated = await storeService.updateStoreInfo({ qris_image_url: url });
+          if (updated?.qris_image_url) {
+            setQrisImageUrl(updated.qris_image_url);
+          }
           await refreshData();
         } else {
           setReceiptLogoUrl(url);
-          await storeService.updateStoreInfo({ receipt_logo_url: url });
+          isUserEditingInvoice.current = false;
+          const updated = await storeService.updateStoreInfo({ receipt_logo_url: url });
+          if (updated?.receipt_logo_url) {
+            setReceiptLogoUrl(updated.receipt_logo_url);
+          }
           await refreshData();
         }
       }
@@ -514,7 +542,10 @@ export const SettingsAdmin: React.FC = () => {
                   type="text"
                   required
                   value={storeName}
-                  onChange={(e) => setStoreName(e.target.value)}
+                  onChange={(e) => {
+                    isUserEditingStore.current = true;
+                    setStoreName(e.target.value);
+                  }}
                   className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs sm:text-sm text-white focus:outline-none focus:border-amber-500"
                 />
               </div>
@@ -526,7 +557,10 @@ export const SettingsAdmin: React.FC = () => {
                 <input
                   type="text"
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
+                  onChange={(e) => {
+                    isUserEditingStore.current = true;
+                    setPhone(e.target.value);
+                  }}
                   placeholder="081299001999"
                   className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs sm:text-sm text-white focus:outline-none focus:border-amber-500"
                 />
@@ -542,7 +576,10 @@ export const SettingsAdmin: React.FC = () => {
                 <textarea
                   rows={2}
                   value={address}
-                  onChange={(e) => setAddress(e.target.value)}
+                  onChange={(e) => {
+                    isUserEditingStore.current = true;
+                    setAddress(e.target.value);
+                  }}
                   className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs sm:text-sm text-white focus:outline-none focus:border-amber-500"
                 />
               </div>
@@ -554,7 +591,10 @@ export const SettingsAdmin: React.FC = () => {
                 <textarea
                   rows={2}
                   value={description}
-                  onChange={(e) => setDescription(e.target.value)}
+                  onChange={(e) => {
+                    isUserEditingStore.current = true;
+                    setDescription(e.target.value);
+                  }}
                   className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs sm:text-sm text-white focus:outline-none focus:border-amber-500"
                 />
               </div>
@@ -606,7 +646,10 @@ export const SettingsAdmin: React.FC = () => {
                       type="text"
                       placeholder="URL Gambar QRIS (https://...)"
                       value={qrisImageUrl}
-                      onChange={(e) => setQrisImageUrl(e.target.value)}
+                      onChange={(e) => {
+                        isUserEditingInvoice.current = true;
+                        setQrisImageUrl(e.target.value);
+                      }}
                       className="flex-1 rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white focus:outline-none"
                     />
                     <label className="cursor-pointer flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs font-semibold text-slate-300 hover:bg-slate-700">
@@ -637,7 +680,10 @@ export const SettingsAdmin: React.FC = () => {
                       type="text"
                       placeholder="URL Logo Struk (https://... atau /icon.svg)"
                       value={receiptLogoUrl}
-                      onChange={(e) => setReceiptLogoUrl(e.target.value)}
+                      onChange={(e) => {
+                        isUserEditingInvoice.current = true;
+                        setReceiptLogoUrl(e.target.value);
+                      }}
                       className="flex-1 rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white focus:outline-none"
                     />
                     <label className="cursor-pointer flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs font-semibold text-slate-300 hover:bg-slate-700">
@@ -656,7 +702,10 @@ export const SettingsAdmin: React.FC = () => {
                     <input
                       type="checkbox"
                       checked={receiptShowLogo}
-                      onChange={(e) => setReceiptShowLogo(e.target.checked)}
+                      onChange={(e) => {
+                        isUserEditingInvoice.current = true;
+                        setReceiptShowLogo(e.target.checked);
+                      }}
                       className="rounded accent-amber-500 h-4 w-4"
                     />
                     <span>Tampilkan Logo di Header Struk Thermal</span>
@@ -672,7 +721,10 @@ export const SettingsAdmin: React.FC = () => {
                     type="text"
                     placeholder="K99 KEDAI KOPI & TEH"
                     value={receiptHeaderText}
-                    onChange={(e) => setReceiptHeaderText(e.target.value)}
+                    onChange={(e) => {
+                      isUserEditingInvoice.current = true;
+                      setReceiptHeaderText(e.target.value);
+                    }}
                     className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white focus:outline-none"
                   />
                 </div>
@@ -686,7 +738,10 @@ export const SettingsAdmin: React.FC = () => {
                     rows={3}
                     placeholder="Terima kasih telah berkunjung ke K99!&#10;Follow Instagram @k99kedai"
                     value={receiptFooterText}
-                    onChange={(e) => setReceiptFooterText(e.target.value)}
+                    onChange={(e) => {
+                      isUserEditingInvoice.current = true;
+                      setReceiptFooterText(e.target.value);
+                    }}
                     className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white focus:outline-none"
                   />
                 </div>
