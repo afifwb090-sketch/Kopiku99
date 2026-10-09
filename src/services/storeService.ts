@@ -22,6 +22,19 @@ export const getCachedStoreSettings = (): StoreSetting => {
 
 export const storeService = {
   async getSettings(): Promise<StoreSetting> {
+    // 1. Try server API first (primary sync across devices)
+    try {
+      const res = await fetch('/api/store');
+      if (res.ok) {
+        const data = await res.json();
+        localStorage.setItem(STORE_STORAGE_KEY, JSON.stringify(data));
+        return data as StoreSetting;
+      }
+    } catch {
+      // offline or server not ready
+    }
+
+    // 2. Try Supabase if configured
     if (supabase) {
       try {
         const { data, error } = await supabase
@@ -30,11 +43,7 @@ export const storeService = {
           .limit(1)
           .single();
 
-        if (error) {
-          console.warn('Supabase store_settings query error, falling back:', error.message);
-          return getCachedStoreSettings();
-        }
-        if (data) {
+        if (!error && data) {
           localStorage.setItem(STORE_STORAGE_KEY, JSON.stringify(data));
           return data as StoreSetting;
         }
@@ -42,6 +51,7 @@ export const storeService = {
         console.warn('Supabase store_settings connection failed:', err);
       }
     }
+
     return getCachedStoreSettings();
   },
 
@@ -62,9 +72,25 @@ export const storeService = {
       realtimeBus.postMessage({ type: 'STORE_STATUS_CHANGED', data: updated });
     }
 
+    // Update server API for all devices
+    try {
+      const res = await fetch('/api/store', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_open: isOpen, updated_by: updatedBy || null }),
+      });
+      if (res.ok) {
+        const serverData = await res.json();
+        localStorage.setItem(STORE_STORAGE_KEY, JSON.stringify(serverData));
+        return serverData;
+      }
+    } catch (err) {
+      console.warn('Server API store update error:', err);
+    }
+
     if (supabase) {
       try {
-        const { data, error } = await supabase
+        const { data } = await supabase
           .from('store_settings')
           .update({
             is_open: isOpen,
@@ -75,9 +101,7 @@ export const storeService = {
           .select()
           .single();
 
-        if (error) {
-          console.warn('Supabase store_settings update failed:', error.message);
-        } else if (data) {
+        if (data) {
           localStorage.setItem(STORE_STORAGE_KEY, JSON.stringify(data));
           return data as StoreSetting;
         }
@@ -102,6 +126,22 @@ export const storeService = {
       realtimeBus.postMessage({ type: 'STORE_STATUS_CHANGED', data: updated });
     }
 
+    // Sync to server API
+    try {
+      const res = await fetch('/api/store', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(info),
+      });
+      if (res.ok) {
+        const serverData = await res.json();
+        localStorage.setItem(STORE_STORAGE_KEY, JSON.stringify(serverData));
+        return serverData;
+      }
+    } catch (err) {
+      console.warn('Server API store update error:', err);
+    }
+
     if (supabase) {
       try {
         const { data } = await supabase
@@ -120,6 +160,24 @@ export const storeService = {
   },
 
   subscribe(callback: (settings: StoreSetting) => void): () => void {
+    let sseSource: EventSource | null = null;
+    if (typeof window !== 'undefined' && 'EventSource' in window) {
+      try {
+        sseSource = new EventSource('/api/events');
+        sseSource.addEventListener('STORE_STATUS_CHANGED', (event) => {
+          try {
+            const parsed = JSON.parse(event.data);
+            if (parsed.data) {
+              localStorage.setItem(STORE_STORAGE_KEY, JSON.stringify(parsed.data));
+              callback(parsed.data);
+            }
+          } catch {}
+        });
+      } catch (err) {
+        console.warn('SSE connection failed:', err);
+      }
+    }
+
     // 1. Supabase Realtime channel
     let supabaseChannel: any = null;
     if (supabase) {
@@ -153,13 +211,16 @@ export const storeService = {
       realtimeBus.addEventListener('message', handleBroadcast);
     }
 
-    // 3. Fallback polling every 5s if tab is active (resilient network guarantee)
+    // 3. Fallback polling every 5s if tab is active (ensures devices without SSE keep sync)
     const interval = setInterval(async () => {
       const latest = await storeService.getSettings();
       callback(latest);
     }, 5000);
 
     return () => {
+      if (sseSource) {
+        sseSource.close();
+      }
       if (supabaseChannel && supabase) {
         supabase.removeChannel(supabaseChannel);
       }

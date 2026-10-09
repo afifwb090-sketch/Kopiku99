@@ -18,6 +18,7 @@ export interface PromoCode {
   id: string;
   code: string;
   discount_percent: number;
+  min_purchase?: number;
   is_active: boolean;
   created_at: string;
 }

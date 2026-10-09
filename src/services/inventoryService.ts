@@ -20,6 +20,17 @@ export const getCachedIngredients = (): Ingredient[] => {
 
 export const inventoryService = {
   async getIngredients(): Promise<Ingredient[]> {
+    try {
+      const res = await fetch('/api/inventory/ingredients');
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.length > 0) {
+          localStorage.setItem(INGREDIENTS_KEY, JSON.stringify(data));
+          return data as Ingredient[];
+        }
+      }
+    } catch {}
+
     if (supabase) {
       try {
         const { data, error } = await supabase
@@ -45,6 +56,20 @@ export const inventoryService = {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
+
+    try {
+      const res = await fetch('/api/inventory/ingredients', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newIngredient),
+      });
+      if (res.ok) {
+        const serverIng = await res.json();
+        const current = getCachedIngredients();
+        localStorage.setItem(INGREDIENTS_KEY, JSON.stringify([...current, serverIng]));
+        return serverIng;
+      }
+    } catch {}
 
     if (supabase) {
       try {
@@ -110,6 +135,17 @@ export const inventoryService = {
   },
 
   async getRecipes(): Promise<Recipe[]> {
+    try {
+      const res = await fetch('/api/inventory/recipes');
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.length > 0) {
+          localStorage.setItem(RECIPES_KEY, JSON.stringify(data));
+          return data as Recipe[];
+        }
+      }
+    } catch {}
+
     if (supabase) {
       try {
         const { data } = await supabase
@@ -139,6 +175,15 @@ export const inventoryService = {
   async saveRecipe(productId: string, items: Array<{ ingredient_id: string; quantity: number; unit: string }>): Promise<boolean> {
     const now = new Date().toISOString();
     const recipeId = 'rcp-' + productId;
+
+    // Save to server API
+    try {
+      await fetch('/api/inventory/recipes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productId, items }),
+      });
+    } catch {}
 
     const mappedItems = items.map((it) => ({
       id: 'rcp-item-' + Math.random().toString(36).substring(2, 9),

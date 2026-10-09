@@ -37,6 +37,7 @@ import {
   Tag,
   Percent,
   Ticket,
+  Check,
 } from 'lucide-react';
 
 export const SettingsAdmin: React.FC = () => {
@@ -78,8 +79,13 @@ export const SettingsAdmin: React.FC = () => {
   );
   const [newPromoCode, setNewPromoCode] = useState('');
   const [newPromoDiscount, setNewPromoDiscount] = useState<number>(10);
+  const [newPromoMinPurchase, setNewPromoMinPurchase] = useState<number>(0);
   const [isSavingPromo, setIsSavingPromo] = useState(false);
   const [promoFormError, setPromoFormError] = useState<string | null>(null);
+
+  // Status feedback banners
+  const [storeSavedMsg, setStoreSavedMsg] = useState<string | null>(null);
+  const [invoiceSavedMsg, setInvoiceSavedMsg] = useState<string | null>(null);
 
   // Supabase form state
   const [supabaseConfig, setSupabaseConfig] = useState(getSupabaseConfig());
@@ -110,21 +116,27 @@ export const SettingsAdmin: React.FC = () => {
   const [migrationResultB, setMigrationResultB] = useState<MigrationSummary | null>(null);
   const [errorB, setErrorB] = useState<string | null>(null);
 
+  const hasLoadedInitialSettings = React.useRef(false);
+
   useEffect(() => {
-    setStoreName(storeSettings.store_name);
-    setAddress(storeSettings.address || '');
-    setPhone(storeSettings.phone || '');
-    setDescription(storeSettings.description || '');
-    setQrisImageUrl(storeSettings.qris_image_url || '');
-    setReceiptLogoUrl(storeSettings.receipt_logo_url || '');
-    setReceiptShowLogo(storeSettings.receipt_show_logo !== false);
-    setReceiptHeaderText(storeSettings.receipt_header_text || storeSettings.store_name);
-    setReceiptFooterText(storeSettings.receipt_footer_text || '');
-    if (storeSettings.available_addons && storeSettings.available_addons.length > 0) {
-      setAddonsList(storeSettings.available_addons);
-    }
-    if (storeSettings.promo_codes) {
-      setPromoCodesList(storeSettings.promo_codes);
+    // Only load initial form fields once so user typing is NEVER erased or reverted!
+    if (!hasLoadedInitialSettings.current && storeSettings.store_name) {
+      setStoreName(storeSettings.store_name);
+      setAddress(storeSettings.address || '');
+      setPhone(storeSettings.phone || '');
+      setDescription(storeSettings.description || '');
+      setQrisImageUrl(storeSettings.qris_image_url || '');
+      setReceiptLogoUrl(storeSettings.receipt_logo_url || '');
+      setReceiptShowLogo(storeSettings.receipt_show_logo !== false);
+      setReceiptHeaderText(storeSettings.receipt_header_text || storeSettings.store_name);
+      setReceiptFooterText(storeSettings.receipt_footer_text || '');
+      if (storeSettings.available_addons && storeSettings.available_addons.length > 0) {
+        setAddonsList(storeSettings.available_addons);
+      }
+      if (storeSettings.promo_codes) {
+        setPromoCodesList(storeSettings.promo_codes);
+      }
+      hasLoadedInitialSettings.current = true;
     }
   }, [storeSettings]);
 
@@ -140,6 +152,7 @@ export const SettingsAdmin: React.FC = () => {
   const handleSaveStore = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSavingStore(true);
+    setStoreSavedMsg(null);
     try {
       await storeService.updateStoreInfo({
         store_name: storeName.trim(),
@@ -148,9 +161,10 @@ export const SettingsAdmin: React.FC = () => {
         description: description.trim(),
       });
       await refreshData();
-      alert('Informasi kedai berhasil disimpan!');
+      setStoreSavedMsg('Informasi kedai berhasil disimpan!');
+      setTimeout(() => setStoreSavedMsg(null), 4000);
     } catch (err: any) {
-      alert('Gagal menyimpan: ' + err.message);
+      setStoreSavedMsg('Gagal menyimpan: ' + (err.message || 'Terjadi kesalahan'));
     } finally {
       setIsSavingStore(false);
     }
@@ -159,6 +173,7 @@ export const SettingsAdmin: React.FC = () => {
   const handleSaveInvoiceAndQris = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSavingInvoice(true);
+    setInvoiceSavedMsg(null);
     try {
       await storeService.updateStoreInfo({
         qris_image_url: qrisImageUrl.trim() || undefined,
@@ -168,9 +183,10 @@ export const SettingsAdmin: React.FC = () => {
         receipt_footer_text: receiptFooterText.trim() || undefined,
       });
       await refreshData();
-      alert('Pengaturan QRIS & Struk Invoice berhasil disimpan!');
+      setInvoiceSavedMsg('Pengaturan QRIS & Struk Invoice berhasil disimpan!');
+      setTimeout(() => setInvoiceSavedMsg(null), 4000);
     } catch (err: any) {
-      alert('Gagal menyimpan: ' + err.message);
+      setInvoiceSavedMsg('Gagal menyimpan: ' + (err.message || 'Terjadi kesalahan'));
     } finally {
       setIsSavingInvoice(false);
     }
@@ -186,9 +202,18 @@ export const SettingsAdmin: React.FC = () => {
     try {
       const url = await productService.uploadProductImage(file);
       if (url) {
-        if (target === 'qris') setQrisImageUrl(url);
-        else setReceiptLogoUrl(url);
+        if (target === 'qris') {
+          setQrisImageUrl(url);
+          await storeService.updateStoreInfo({ qris_image_url: url });
+          await refreshData();
+        } else {
+          setReceiptLogoUrl(url);
+          await storeService.updateStoreInfo({ receipt_logo_url: url });
+          await refreshData();
+        }
       }
+    } catch (err: any) {
+      console.error('Upload error:', err);
     } finally {
       if (target === 'qris') setIsUploadingQris(false);
       else setIsUploadingLogo(false);
@@ -241,6 +266,7 @@ export const SettingsAdmin: React.FC = () => {
         id: 'promo-' + Math.random().toString(36).substring(2, 9),
         code: cleanCode,
         discount_percent: Number(newPromoDiscount),
+        min_purchase: Math.max(0, Number(newPromoMinPurchase) || 0),
         is_active: true,
         created_at: new Date().toISOString(),
       };
@@ -248,6 +274,7 @@ export const SettingsAdmin: React.FC = () => {
       setPromoCodesList(updated);
       setNewPromoCode('');
       setNewPromoDiscount(10);
+      setNewPromoMinPurchase(0);
       await storeService.updateStoreInfo({ promo_codes: updated });
       await refreshData();
     } catch (err: any) {
@@ -471,7 +498,13 @@ export const SettingsAdmin: React.FC = () => {
 
         {/* TAB 1: STORE SETTINGS */}
         {tab === 'store' && (
-          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5 max-w-2xl">
+          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5 max-w-2xl space-y-4">
+            {storeSavedMsg && (
+              <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/30 p-3 text-xs font-semibold text-emerald-400 flex items-center gap-2">
+                <Check className="h-4 w-4 shrink-0 text-emerald-400" />
+                <span>{storeSavedMsg}</span>
+              </div>
+            )}
             <form onSubmit={handleSaveStore} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">
@@ -554,6 +587,13 @@ export const SettingsAdmin: React.FC = () => {
                   </p>
                 </div>
               </div>
+
+              {invoiceSavedMsg && (
+                <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/30 p-3 text-xs font-semibold text-emerald-400 flex items-center gap-2">
+                  <Check className="h-4 w-4 shrink-0 text-emerald-400" />
+                  <span>{invoiceSavedMsg}</span>
+                </div>
+              )}
 
               <form onSubmit={handleSaveInvoiceAndQris} className="space-y-4">
                 {/* 1. Foto QRIS */}
@@ -811,9 +851,9 @@ export const SettingsAdmin: React.FC = () => {
               </div>
             )}
 
-            {/* Form Buat Kode Promo Baru */}
+            {/* Form Buat Kode Promo Baru (Requirement 3 & 4) */}
             <form onSubmit={handleCreatePromoCode} className="grid grid-cols-1 sm:grid-cols-12 gap-3 p-4 rounded-xl border border-slate-800 bg-slate-950/60">
-              <div className="sm:col-span-6">
+              <div className="sm:col-span-4">
                 <label className="block text-[11px] font-semibold text-slate-300 mb-1">
                   Nama / Kode Promo <span className="text-rose-400">*</span>
                 </label>
@@ -822,18 +862,18 @@ export const SettingsAdmin: React.FC = () => {
                   <input
                     type="text"
                     required
-                    placeholder="Misal: K99HEMAT, DISKON15"
+                    placeholder="Misal: K99HEMAT"
                     value={newPromoCode}
                     onChange={(e) => setNewPromoCode(e.target.value.toUpperCase())}
                     className="w-full rounded-xl border border-slate-700 bg-slate-800 pl-9 pr-3 py-2 text-xs font-mono font-bold uppercase text-amber-300 placeholder-slate-500 focus:outline-none focus:border-amber-500"
                   />
                 </div>
-                <span className="text-[10px] text-slate-500 block mt-0.5">Kode bebas ditentukan sendiri (huruf besar)</span>
+                <span className="text-[10px] text-slate-500 block mt-0.5">Kode unik huruf besar</span>
               </div>
 
-              <div className="sm:col-span-4">
+              <div className="sm:col-span-3">
                 <label className="block text-[11px] font-semibold text-slate-300 mb-1">
-                  Persentase Diskon (%) <span className="text-rose-400">*</span>
+                  Diskon (%) <span className="text-rose-400">*</span>
                 </label>
                 <div className="relative">
                   <input
@@ -848,7 +888,25 @@ export const SettingsAdmin: React.FC = () => {
                   />
                   <span className="absolute right-3 top-2.5 text-xs text-slate-400 font-bold">%</span>
                 </div>
-                <span className="text-[10px] text-slate-500 block mt-0.5">Contoh: 10 untuk diskon 10%</span>
+                <span className="text-[10px] text-slate-500 block mt-0.5">Contoh: 10 untuk 10%</span>
+              </div>
+
+              <div className="sm:col-span-3">
+                <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                  Min. Belanja (Rp)
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    min={0}
+                    step={1000}
+                    value={newPromoMinPurchase === 0 ? '' : newPromoMinPurchase}
+                    onChange={(e) => setNewPromoMinPurchase(Math.max(0, Number(e.target.value) || 0))}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs font-bold text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
+                    placeholder="0 (Tanpa minimal)"
+                  />
+                </div>
+                <span className="text-[10px] text-slate-500 block mt-0.5">Syarat minimal order (Rp)</span>
               </div>
 
               <div className="sm:col-span-2 flex items-end">
@@ -891,9 +949,14 @@ export const SettingsAdmin: React.FC = () => {
                           {promo.code}
                         </div>
                         <div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             <span className="text-xs font-bold text-white">
                               Potongan {promo.discount_percent}%
+                            </span>
+                            <span className="text-[11px] font-semibold text-amber-400/90">
+                              {promo.min_purchase && promo.min_purchase > 0
+                                ? `• Min. Belanja Rp ${promo.min_purchase.toLocaleString('id-ID')}`
+                                : '• Tanpa Min. Belanja'}
                             </span>
                             <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                               promo.is_active

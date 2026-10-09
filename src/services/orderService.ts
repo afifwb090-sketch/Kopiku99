@@ -47,6 +47,19 @@ export interface CreateOrderInput {
 
 export const orderService = {
   async getOrders(filters?: { status?: OrderStatus; orderType?: OrderType; date?: string }): Promise<Order[]> {
+    try {
+      const res = await fetch('/api/orders');
+      if (res.ok) {
+        let serverOrders = (await res.json()) as Order[];
+        if (serverOrders) {
+          localStorage.setItem(ORDERS_STORAGE_KEY, JSON.stringify(serverOrders));
+          if (filters?.status) serverOrders = serverOrders.filter(o => o.status === filters.status);
+          if (filters?.orderType) serverOrders = serverOrders.filter(o => o.order_type === filters.orderType);
+          return serverOrders;
+        }
+      }
+    } catch {}
+
     if (supabase) {
       try {
         let query = supabase
@@ -127,6 +140,24 @@ export const orderService = {
       items: orderItems,
     };
 
+    // Attempt server API insert
+    try {
+      const res = await fetch('/api/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newOrder),
+      });
+      if (res.ok) {
+        const serverOrder = await res.json();
+        const cached = getCachedOrders();
+        localStorage.setItem(ORDERS_STORAGE_KEY, JSON.stringify([serverOrder, ...cached]));
+        if (realtimeBus) {
+          realtimeBus.postMessage({ type: 'NEW_ORDER_CREATED', data: serverOrder });
+        }
+        return serverOrder;
+      }
+    } catch {}
+
     // Attempt Supabase insert
     if (supabase) {
       try {
@@ -204,6 +235,28 @@ export const orderService = {
   },
 
   async updateOrderStatus(id: string, status: OrderStatus): Promise<Order | null> {
+    // 1. Try server API
+    try {
+      const res = await fetch(`/api/orders/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+      if (res.ok) {
+        const serverOrder = await res.json();
+        const cached = getCachedOrders();
+        const idx = cached.findIndex(o => o.id === id);
+        if (idx !== -1) {
+          cached[idx] = serverOrder;
+          localStorage.setItem(ORDERS_STORAGE_KEY, JSON.stringify(cached));
+        }
+        if (realtimeBus) {
+          realtimeBus.postMessage({ type: 'ORDER_STATUS_CHANGED', data: serverOrder });
+        }
+        return serverOrder;
+      }
+    } catch {}
+
     if (supabase) {
       try {
         const { data, error } = await supabase
@@ -270,6 +323,11 @@ export const orderService = {
       await inventoryService.restoreStockForOrder(target);
     }
 
+    // Server API delete
+    try {
+      await fetch(`/api/orders/${id}`, { method: 'DELETE' });
+    } catch {}
+
     if (supabase) {
       try {
         await supabase.from('order_items').delete().eq('order_id', id);
@@ -292,6 +350,29 @@ export const orderService = {
   },
 
   subscribe(callback: (event: { type: 'NEW_ORDER' | 'STATUS_CHANGE'; order: Order }) => void): () => void {
+    let sseSource: EventSource | null = null;
+    if (typeof window !== 'undefined' && 'EventSource' in window) {
+      try {
+        sseSource = new EventSource('/api/events');
+        sseSource.addEventListener('NEW_ORDER_CREATED', (ev) => {
+          try {
+            const parsed = JSON.parse(ev.data);
+            if (parsed.data) {
+              callback({ type: 'NEW_ORDER', order: parsed.data });
+            }
+          } catch {}
+        });
+        sseSource.addEventListener('ORDER_UPDATED', (ev) => {
+          try {
+            const parsed = JSON.parse(ev.data);
+            if (parsed.data) {
+              callback({ type: 'STATUS_CHANGE', order: parsed.data });
+            }
+          } catch {}
+        });
+      } catch {}
+    }
+
     let supabaseChannel: any = null;
     if (supabase) {
       try {

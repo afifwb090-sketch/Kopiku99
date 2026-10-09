@@ -18,6 +18,30 @@ export const getCachedCategories = (): Category[] => {
 
 export const categoryService = {
   async getCategories(onlyActive = false): Promise<Category[]> {
+    try {
+      const res = await fetch('/api/categories');
+      if (res.ok) {
+        let serverCats = (await res.json()) as Category[];
+        if (serverCats.length === 0) {
+          const cached = getCachedCategories();
+          if (cached && cached.length > 0) {
+            try {
+              const syncRes = await fetch('/api/categories/sync', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(cached),
+              });
+              if (syncRes.ok) serverCats = await syncRes.json();
+            } catch {}
+          }
+        }
+        if (serverCats && serverCats.length > 0) {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(serverCats));
+          return onlyActive ? serverCats.filter(c => c.is_active) : serverCats;
+        }
+      }
+    } catch {}
+
     if (supabase) {
       try {
         let query = supabase.from('categories').select('*').order('sort_order', { ascending: true });
@@ -45,6 +69,20 @@ export const categoryService = {
       updated_at: new Date().toISOString(),
     };
 
+    try {
+      const res = await fetch('/api/categories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newCategory),
+      });
+      if (res.ok) {
+        const serverCat = await res.json();
+        const current = getCachedCategories();
+        localStorage.setItem(STORAGE_KEY, JSON.stringify([...current, serverCat]));
+        return serverCat;
+      }
+    } catch {}
+
     if (supabase) {
       try {
         const { data, error } = await supabase
@@ -53,7 +91,6 @@ export const categoryService = {
           .select()
           .single();
         if (!error && data) {
-          const list = await categoryService.getCategories();
           return data as Category;
         }
       } catch (err) {
@@ -68,6 +105,24 @@ export const categoryService = {
   },
 
   async updateCategory(id: string, updates: Partial<Category>): Promise<Category | null> {
+    try {
+      const res = await fetch(`/api/categories/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+      if (res.ok) {
+        const serverCat = await res.json();
+        const current = getCachedCategories();
+        const idx = current.findIndex(c => c.id === id);
+        if (idx !== -1) {
+          current[idx] = serverCat;
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
+        }
+        return serverCat;
+      }
+    } catch {}
+
     if (supabase) {
       try {
         const { data, error } = await supabase
@@ -96,6 +151,16 @@ export const categoryService = {
   },
 
   async deleteCategory(id: string): Promise<boolean> {
+    try {
+      const res = await fetch(`/api/categories/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        const current = getCachedCategories();
+        const filtered = current.filter(c => c.id !== id);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
+        return true;
+      }
+    } catch {}
+
     if (supabase) {
       try {
         const { error } = await supabase.from('categories').delete().eq('id', id);

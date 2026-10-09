@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useStore, CartItem } from '../context/StoreContext';
 import { useRouter } from '../context/RouterContext';
 import { StoreStatusBadge } from '../components/StoreStatusBadge';
@@ -128,12 +128,28 @@ export const StorePage: React.FC<Props> = ({ isCartOpen, setIsCartOpen }) => {
     const promos = storeSettings.promo_codes || [];
     const matched = promos.find(p => p.code.toUpperCase() === code && p.is_active);
     if (matched) {
+      if (matched.min_purchase && matched.min_purchase > 0 && cartSubtotal < matched.min_purchase) {
+        setPromoError(
+          `Minimal pembelian untuk promo "${matched.code}" adalah Rp ${matched.min_purchase.toLocaleString('id-ID')}. Total belanja Anda saat ini: Rp ${cartSubtotal.toLocaleString('id-ID')}.`
+        );
+        return;
+      }
       setAppliedPromo(matched);
       setPromoError(null);
     } else {
       setPromoError(`Kode promo "${code}" tidak valid atau sudah tidak aktif.`);
     }
   };
+
+  // Re-check minimum purchase if cart subtotal decreases
+  useEffect(() => {
+    if (appliedPromo && appliedPromo.min_purchase && appliedPromo.min_purchase > 0 && cartSubtotal < appliedPromo.min_purchase) {
+      setAppliedPromo(null);
+      setPromoError(
+        `Kode promo "${appliedPromo.code}" dilepas karena total belanja (Rp ${cartSubtotal.toLocaleString('id-ID')}) kurang dari syarat minimal Rp ${appliedPromo.min_purchase.toLocaleString('id-ID')}.`
+      );
+    }
+  }, [cartSubtotal, appliedPromo]);
 
   const handleRemovePromo = () => {
     setAppliedPromo(null);
@@ -979,6 +995,11 @@ export const StorePage: React.FC<Props> = ({ isCartOpen, setIsCartOpen }) => {
                           </div>
                           <span className="text-[11px] text-slate-300 block mt-0.5">
                             Potongan harga: <strong className="text-emerald-400 font-semibold">-Rp {discountAmount.toLocaleString('id-ID')}</strong>
+                            {appliedPromo.min_purchase && appliedPromo.min_purchase > 0 && (
+                              <span className="text-[10px] text-slate-400 block mt-0.5">
+                                Syarat minimal belanja: Rp {appliedPromo.min_purchase.toLocaleString('id-ID')} (Terpenuhi)
+                              </span>
+                            )}
                           </span>
                         </div>
                         <button

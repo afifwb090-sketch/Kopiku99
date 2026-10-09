@@ -18,6 +18,44 @@ export const getCachedProducts = (): Product[] => {
 
 export const productService = {
   async getProducts(options?: { categoryId?: string; onlyActive?: boolean; onlyAvailable?: boolean }): Promise<Product[]> {
+    // 1. Try server API first (sync across all devices)
+    try {
+      const params = new URLSearchParams();
+      if (options?.categoryId) params.set('categoryId', options.categoryId);
+      if (options?.onlyActive) params.set('onlyActive', 'true');
+      if (options?.onlyAvailable) params.set('onlyAvailable', 'true');
+
+      const url = `/api/products${params.toString() ? '?' + params.toString() : ''}`;
+      const res = await fetch(url);
+      if (res.ok) {
+        let serverProducts = (await res.json()) as Product[];
+
+        // If server has no products, check if client has cached products from desktop to sync up
+        if (serverProducts.length === 0) {
+          const cached = getCachedProducts();
+          if (cached && cached.length > 0) {
+            try {
+              const syncRes = await fetch('/api/products/sync', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(cached),
+              });
+              if (syncRes.ok) {
+                serverProducts = await syncRes.json();
+              }
+            } catch {}
+          }
+        }
+
+        if (serverProducts && serverProducts.length > 0) {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(serverProducts));
+          return serverProducts;
+        }
+      }
+    } catch {
+      // offline fallback
+    }
+
     if (supabase) {
       try {
         let query = supabase
@@ -67,6 +105,23 @@ export const productService = {
       updated_at: new Date().toISOString(),
     };
 
+    // Save to server API first
+    try {
+      const res = await fetch('/api/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newProduct),
+      });
+      if (res.ok) {
+        const serverProd = await res.json();
+        const current = getCachedProducts();
+        localStorage.setItem(STORAGE_KEY, JSON.stringify([...current, serverProd]));
+        return serverProd;
+      }
+    } catch (err) {
+      console.warn('Server API createProduct error:', err);
+    }
+
     if (supabase) {
       try {
         const { data, error } = await supabase
@@ -101,6 +156,27 @@ export const productService = {
   },
 
   async updateProduct(id: string, updates: Partial<Product>): Promise<Product | null> {
+    // 1. Try server API first
+    try {
+      const res = await fetch(`/api/products/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+      if (res.ok) {
+        const serverProd = await res.json();
+        const current = getCachedProducts();
+        const idx = current.findIndex(p => p.id === id);
+        if (idx !== -1) {
+          current[idx] = serverProd;
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
+        }
+        return serverProd;
+      }
+    } catch (err) {
+      console.warn('Server API updateProduct error:', err);
+    }
+
     if (supabase) {
       try {
         const payload: any = { ...updates, updated_at: new Date().toISOString() };
@@ -134,6 +210,19 @@ export const productService = {
   },
 
   async deleteProduct(id: string): Promise<boolean> {
+    // 1. Try server API first
+    try {
+      const res = await fetch(`/api/products/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        const current = getCachedProducts();
+        const filtered = current.filter(p => p.id !== id);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
+        return true;
+      }
+    } catch (err) {
+      console.warn('Server API deleteProduct error:', err);
+    }
+
     if (supabase) {
       try {
         const { error } = await supabase.from('products').delete().eq('id', id);
@@ -150,6 +239,31 @@ export const productService = {
   },
 
   async uploadProductImage(file: File): Promise<string | null> {
+    // Read file as base64 data URL
+    const base64Data: string = await new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = () => resolve('');
+      reader.readAsDataURL(file);
+    });
+
+    if (!base64Data) return null;
+
+    // 1. Try server API upload (saves file on disk, prevents 5MB localStorage crash)
+    try {
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: base64Data, filename: file.name }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.url) return data.url;
+      }
+    } catch (err) {
+      console.warn('Server upload error, trying fallbacks:', err);
+    }
+
     if (supabase) {
       try {
         const fileExt = file.name.split('.').pop();
@@ -171,14 +285,7 @@ export const productService = {
       }
     }
 
-    // Fallback: convert to base64 Data URL or mock image URL
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        resolve(reader.result as string);
-      };
-      reader.onerror = () => resolve(null);
-      reader.readAsDataURL(file);
-    });
+    // Fallback: base64 Data URL
+    return base64Data;
   },
 };
