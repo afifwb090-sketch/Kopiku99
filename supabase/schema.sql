@@ -6,6 +6,35 @@
 -- 1. Enable required extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+-- Convert existing UUID columns to TEXT (agar menerima ID format 'cat-xxx', 'prod-xxx')
+DO $$
+BEGIN
+  ALTER TABLE IF EXISTS public.products DROP CONSTRAINT IF EXISTS products_category_id_fkey;
+  ALTER TABLE IF EXISTS public.recipe_items DROP CONSTRAINT IF EXISTS recipe_items_recipe_id_fkey;
+  ALTER TABLE IF EXISTS public.recipe_items DROP CONSTRAINT IF EXISTS recipe_items_ingredient_id_fkey;
+  ALTER TABLE IF EXISTS public.order_items DROP CONSTRAINT IF EXISTS order_items_order_id_fkey;
+
+  ALTER TABLE IF EXISTS public.categories ALTER COLUMN id TYPE TEXT;
+  ALTER TABLE IF EXISTS public.products ALTER COLUMN id TYPE TEXT;
+  ALTER TABLE IF EXISTS public.products ALTER COLUMN category_id TYPE TEXT;
+  ALTER TABLE IF EXISTS public.store_settings ALTER COLUMN id TYPE TEXT;
+  ALTER TABLE IF EXISTS public.orders ALTER COLUMN id TYPE TEXT;
+  ALTER TABLE IF EXISTS public.order_items ALTER COLUMN id TYPE TEXT;
+  ALTER TABLE IF EXISTS public.order_items ALTER COLUMN order_id TYPE TEXT;
+  ALTER TABLE IF EXISTS public.order_items ALTER COLUMN product_id TYPE TEXT;
+  ALTER TABLE IF EXISTS public.profiles ALTER COLUMN id TYPE TEXT;
+  ALTER TABLE IF EXISTS public.ingredients ALTER COLUMN id TYPE TEXT;
+  ALTER TABLE IF EXISTS public.recipes ALTER COLUMN id TYPE TEXT;
+  ALTER TABLE IF EXISTS public.recipes ALTER COLUMN product_id TYPE TEXT;
+  ALTER TABLE IF EXISTS public.recipe_items ALTER COLUMN id TYPE TEXT;
+  ALTER TABLE IF EXISTS public.recipe_items ALTER COLUMN recipe_id TYPE TEXT;
+  ALTER TABLE IF EXISTS public.recipe_items ALTER COLUMN ingredient_id TYPE TEXT;
+  ALTER TABLE IF EXISTS public.stock_movements ALTER COLUMN id TYPE TEXT;
+  ALTER TABLE IF EXISTS public.payables ALTER COLUMN id TYPE TEXT;
+EXCEPTION WHEN OTHERS THEN
+  -- Lanjut jika tabel belum dibuat sebelumnya
+END $$;
+
 -- 2. Create PROFILES table
 CREATE TABLE IF NOT EXISTS public.profiles (
   id TEXT PRIMARY KEY,
@@ -165,6 +194,46 @@ CREATE TABLE IF NOT EXISTS public.payables (
   updated_at TIMESTAMPTZ DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
 
+-- Ensure all columns exist even if tables were created previously
+ALTER TABLE public.store_settings ADD COLUMN IF NOT EXISTS qris_image_url TEXT;
+ALTER TABLE public.store_settings ADD COLUMN IF NOT EXISTS receipt_logo_url TEXT;
+ALTER TABLE public.store_settings ADD COLUMN IF NOT EXISTS receipt_show_logo BOOLEAN DEFAULT true;
+ALTER TABLE public.store_settings ADD COLUMN IF NOT EXISTS receipt_header_text TEXT;
+ALTER TABLE public.store_settings ADD COLUMN IF NOT EXISTS receipt_footer_text TEXT;
+ALTER TABLE public.store_settings ADD COLUMN IF NOT EXISTS available_addons JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.store_settings ADD COLUMN IF NOT EXISTS promo_codes JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.store_settings ADD COLUMN IF NOT EXISTS is_open BOOLEAN DEFAULT true;
+ALTER TABLE public.store_settings ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE public.store_settings ADD COLUMN IF NOT EXISTS updated_by TEXT;
+
+ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
+ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0;
+ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS legacy_id TEXT;
+
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS category_id TEXT;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS cost_price NUMERIC(12,2) DEFAULT 0;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS image_url TEXT;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS is_available BOOLEAN DEFAULT true;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS legacy_id TEXT;
+
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS channel TEXT DEFAULT 'offline';
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS online_order_reference TEXT;
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS net_revenue NUMERIC(12,2);
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS delivery_type TEXT DEFAULT 'pickup';
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS delivery_address TEXT;
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS customer_phone TEXT;
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS notes TEXT;
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS promo_code TEXT;
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS promo_discount_percent NUMERIC(5,2) DEFAULT 0;
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS stock_deducted BOOLEAN DEFAULT false;
+
+ALTER TABLE public.order_items ADD COLUMN IF NOT EXISTS temperature TEXT DEFAULT 'normal';
+ALTER TABLE public.order_items ADD COLUMN IF NOT EXISTS addons JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.order_items ADD COLUMN IF NOT EXISTS notes TEXT;
+
 -- ==============================================================================
 -- ROW LEVEL SECURITY (RLS) POLICIES - PERMISSIVE FOR APP ANON & AUTHENTICATED ACCESS
 -- ==============================================================================
@@ -181,9 +250,24 @@ ALTER TABLE public.order_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.stock_movements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.payables ENABLE ROW LEVEL SECURITY;
 
+-- Dynamic drop: Safely drops ANY old policies on public tables to prevent ERROR 42710
+DO $$
+DECLARE
+  pol RECORD;
+BEGIN
+  FOR pol IN
+    SELECT schemaname, tablename, policyname
+    FROM pg_policies
+    WHERE schemaname = 'public'
+  LOOP
+    EXECUTE format('DROP POLICY IF EXISTS %I ON %I.%I', pol.policyname, pol.schemaname, pol.tablename);
+  END LOOP;
+END $$;
+
 -- Drop any old restrictive policies if they existed
 DROP POLICY IF EXISTS "Users can view own profile" ON public.profiles;
 DROP POLICY IF EXISTS "Owner and admin manage profiles" ON public.profiles;
+DROP POLICY IF EXISTS "Allow all on profiles" ON public.profiles;
 DROP POLICY IF EXISTS "Anyone can view store settings" ON public.store_settings;
 DROP POLICY IF EXISTS "Staff can update store settings" ON public.store_settings;
 DROP POLICY IF EXISTS "Staff can insert store settings" ON public.store_settings;

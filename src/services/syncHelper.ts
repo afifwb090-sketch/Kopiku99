@@ -30,7 +30,12 @@ export const pushLocalDataToSupabase = async (): Promise<{
         legacy_id: c.legacy_id || null,
       }));
       const { error: catErr } = await supabase.from('categories').upsert(payloadCats);
-      if (catErr) throw new Error(`Gagal upload kategori: ${catErr.message}`);
+      if (catErr) {
+        if (catErr.message.includes('uuid')) {
+          throw new Error('Kolom "id" pada tabel "categories" di Supabase masih bertipe UUID. Jalankan query: "ALTER TABLE categories ALTER COLUMN id TYPE TEXT;" di Supabase SQL Editor.');
+        }
+        throw new Error(`Gagal upload kategori: ${catErr.message}`);
+      }
       catsCount = cats.length;
     }
 
@@ -51,7 +56,12 @@ export const pushLocalDataToSupabase = async (): Promise<{
         legacy_id: p.legacy_id || null,
       }));
       const { error: prodErr } = await supabase.from('products').upsert(payloadProds);
-      if (prodErr) throw new Error(`Gagal upload produk: ${prodErr.message}`);
+      if (prodErr) {
+        if (prodErr.message.includes('uuid')) {
+          throw new Error('Kolom "id" atau "category_id" pada tabel "products" di Supabase masih bertipe UUID. Jalankan query: "ALTER TABLE products ALTER COLUMN id TYPE TEXT; ALTER TABLE products ALTER COLUMN category_id TYPE TEXT;" di Supabase SQL Editor.');
+        }
+        throw new Error(`Gagal upload produk: ${prodErr.message}`);
+      }
       prodsCount = prods.length;
     }
 

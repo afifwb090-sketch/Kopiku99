@@ -49,7 +49,8 @@ export const orderService = {
   async getOrders(filters?: { status?: OrderStatus; orderType?: OrderType; date?: string }): Promise<Order[]> {
     try {
       const res = await fetch('/api/orders');
-      if (res.ok) {
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
         let serverOrders = (await res.json()) as Order[];
         if (serverOrders) {
           localStorage.setItem(ORDERS_STORAGE_KEY, JSON.stringify(serverOrders));
@@ -147,7 +148,8 @@ export const orderService = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newOrder),
       });
-      if (res.ok) {
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
         const serverOrder = await res.json();
         const cached = getCachedOrders();
         localStorage.setItem(ORDERS_STORAGE_KEY, JSON.stringify([serverOrder, ...cached]));
@@ -164,15 +166,22 @@ export const orderService = {
         const { data: insertedOrder, error: orderErr } = await supabase
           .from('orders')
           .insert([{
+            id: orderId,
             order_number: orderNumber,
             order_type: input.order_type,
+            channel: input.order_type === 'online' ? 'online' : 'offline',
+            delivery_type: input.delivery_type || 'pickup',
+            delivery_address: input.delivery_address || null,
             customer_name: input.customer_name || 'Pelanggan',
             customer_phone: input.customer_phone || null,
             status: newOrder.status,
             payment_method: input.payment_method,
             subtotal,
             discount,
+            promo_code: input.promo_code || null,
+            promo_discount_percent: input.promo_discount_percent || 0,
             total,
+            net_revenue: netRevenue,
             notes: input.notes || null,
             created_by: createdBy || null,
           }])
@@ -242,7 +251,8 @@ export const orderService = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),
       });
-      if (res.ok) {
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
         const serverOrder = await res.json();
         const cached = getCachedOrders();
         const idx = cached.findIndex(o => o.id === id);
