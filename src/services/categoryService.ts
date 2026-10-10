@@ -20,7 +20,8 @@ export const categoryService = {
   async getCategories(onlyActive = false): Promise<Category[]> {
     try {
       const res = await fetch(`/api/categories?_t=${Date.now()}`, { cache: 'no-store' });
-      if (res.ok) {
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
         let serverCats = (await res.json()) as Category[];
         if (serverCats && serverCats.length > 0) {
           try {
@@ -38,8 +39,10 @@ export const categoryService = {
           query = query.eq('is_active', true);
         }
         const { data, error } = await query;
-        if (!error && data && data.length > 0) {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        if (!error && Array.isArray(data) && data.length > 0) {
+          try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+          } catch {}
           return data as Category[];
         }
       } catch (err) {
@@ -58,17 +61,28 @@ export const categoryService = {
       updated_at: new Date().toISOString(),
     };
 
+    const current = getCachedCategories();
+    const updated = [...current, newCategory];
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    } catch {}
+
     try {
       const res = await fetch('/api/categories', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newCategory),
       });
-      if (res.ok) {
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
         const serverCat = await res.json();
-        const current = getCachedCategories();
-        localStorage.setItem(STORAGE_KEY, JSON.stringify([...current, serverCat]));
-        return serverCat;
+        if (serverCat?.id) {
+          try {
+            const fresh = getCachedCategories().filter(c => c.id !== newCategory.id);
+            localStorage.setItem(STORAGE_KEY, JSON.stringify([...fresh, serverCat]));
+          } catch {}
+          return serverCat;
+        }
       }
     } catch {}
 
@@ -76,9 +90,17 @@ export const categoryService = {
       try {
         const { data, error } = await supabase
           .from('categories')
-          .insert([category])
+          .upsert([{
+            id: newCategory.id,
+            name: category.name,
+            is_active: category.is_active ?? true,
+            sort_order: category.sort_order ?? 0,
+            legacy_id: category.legacy_id || null,
+            created_at: newCategory.created_at,
+            updated_at: newCategory.updated_at,
+          }])
           .select()
-          .single();
+          .maybeSingle();
         if (!error && data) {
           return data as Category;
         }
@@ -87,9 +109,6 @@ export const categoryService = {
       }
     }
 
-    const current = getCachedCategories();
-    const updated = [...current, newCategory];
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
     return newCategory;
   },
 

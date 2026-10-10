@@ -1,4 +1,4 @@
--- ==============================================================================
+export const SCHEMA_SQL = `-- ==============================================================================
 -- K99 KEDAI KOPI & TEH - SUPABASE PRODUCTION DATABASE SCHEMA
 -- Compatible with Cloudflare Pages, Mobile Devices, POS Cashier & Online Store
 -- ==============================================================================
@@ -165,10 +165,7 @@ CREATE TABLE IF NOT EXISTS public.payables (
   updated_at TIMESTAMPTZ DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
 
--- ==============================================================================
--- ROW LEVEL SECURITY (RLS) POLICIES - PERMISSIVE FOR APP ANON & AUTHENTICATED ACCESS
--- ==============================================================================
-
+-- ROW LEVEL SECURITY (RLS) POLICIES
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.store_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.categories ENABLE ROW LEVEL SECURITY;
@@ -181,33 +178,19 @@ ALTER TABLE public.order_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.stock_movements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.payables ENABLE ROW LEVEL SECURITY;
 
--- Drop any old restrictive policies if they existed
-DROP POLICY IF EXISTS "Users can view own profile" ON public.profiles;
-DROP POLICY IF EXISTS "Owner and admin manage profiles" ON public.profiles;
-DROP POLICY IF EXISTS "Anyone can view store settings" ON public.store_settings;
-DROP POLICY IF EXISTS "Staff can update store settings" ON public.store_settings;
-DROP POLICY IF EXISTS "Staff can insert store settings" ON public.store_settings;
-DROP POLICY IF EXISTS "Public can view active categories" ON public.categories;
-DROP POLICY IF EXISTS "Staff can manage categories" ON public.categories;
-DROP POLICY IF EXISTS "Public can view active products" ON public.products;
-DROP POLICY IF EXISTS "Staff can manage products" ON public.products;
-DROP POLICY IF EXISTS "Public can insert online orders" ON public.orders;
-DROP POLICY IF EXISTS "Staff can view all orders" ON public.orders;
-DROP POLICY IF EXISTS "Staff can insert pos orders" ON public.orders;
-DROP POLICY IF EXISTS "Staff can update orders" ON public.orders;
-DROP POLICY IF EXISTS "Public can insert order items" ON public.order_items;
-DROP POLICY IF EXISTS "Staff can view order items" ON public.order_items;
-DROP POLICY IF EXISTS "Staff can view ingredients" ON public.ingredients;
-DROP POLICY IF EXISTS "Admin/owner can manage ingredients" ON public.ingredients;
-DROP POLICY IF EXISTS "Staff can view recipes" ON public.recipes;
-DROP POLICY IF EXISTS "Admin/owner can manage recipes" ON public.recipes;
-DROP POLICY IF EXISTS "Staff can view recipe items" ON public.recipe_items;
-DROP POLICY IF EXISTS "Admin/owner can manage recipe items" ON public.recipe_items;
-DROP POLICY IF EXISTS "Staff can view stock movements" ON public.stock_movements;
-DROP POLICY IF EXISTS "Staff can insert stock movements" ON public.stock_movements;
-DROP POLICY IF EXISTS "Admin/owner can manage payables" ON public.payables;
+-- Permissive policies for web & mobile app
+DROP POLICY IF EXISTS "Allow all on profiles" ON public.profiles;
+DROP POLICY IF EXISTS "Allow all on store_settings" ON public.store_settings;
+DROP POLICY IF EXISTS "Allow all on categories" ON public.categories;
+DROP POLICY IF EXISTS "Allow all on products" ON public.products;
+DROP POLICY IF EXISTS "Allow all on ingredients" ON public.ingredients;
+DROP POLICY IF EXISTS "Allow all on recipes" ON public.recipes;
+DROP POLICY IF EXISTS "Allow all on recipe_items" ON public.recipe_items;
+DROP POLICY IF EXISTS "Allow all on orders" ON public.orders;
+DROP POLICY IF EXISTS "Allow all on order_items" ON public.order_items;
+DROP POLICY IF EXISTS "Allow all on stock_movements" ON public.stock_movements;
+DROP POLICY IF EXISTS "Allow all on payables" ON public.payables;
 
--- Create Permissive Policies so the web app (desktop, mobile, kasir) can sync seamlessly:
 CREATE POLICY "Allow all on profiles" ON public.profiles FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all on store_settings" ON public.store_settings FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all on categories" ON public.categories FOR ALL USING (true) WITH CHECK (true);
@@ -220,9 +203,7 @@ CREATE POLICY "Allow all on order_items" ON public.order_items FOR ALL USING (tr
 CREATE POLICY "Allow all on stock_movements" ON public.stock_movements FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all on payables" ON public.payables FOR ALL USING (true) WITH CHECK (true);
 
--- ==============================================================================
--- STORAGE BUCKET FOR IMAGES (QRIS, LOGO, MENU)
--- ==============================================================================
+-- STORAGE BUCKET FOR IMAGES
 INSERT INTO storage.buckets (id, name, public)
 VALUES ('product-images', 'product-images', true)
 ON CONFLICT (id) DO UPDATE SET public = true;
@@ -233,9 +214,7 @@ CREATE POLICY "Public Access product-images"
   USING (bucket_id = 'product-images')
   WITH CHECK (bucket_id = 'product-images');
 
--- ==============================================================================
--- REALTIME REPLICATION (Instant sync between Mobile & Desktop)
--- ==============================================================================
+-- REALTIME REPLICATION
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -266,74 +245,4 @@ BEGIN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.orders;
   END IF;
 END $$;
-
--- ==============================================================================
--- SEED INITIAL DATA (Store Settings, Categories, Products & Default Accounts)
--- ==============================================================================
-
--- 1. Store Settings Initial
-INSERT INTO public.store_settings (
-  id,
-  store_name,
-  is_open,
-  address,
-  phone,
-  description,
-  qris_image_url,
-  receipt_logo_url,
-  receipt_show_logo,
-  receipt_header_text,
-  receipt_footer_text,
-  available_addons,
-  promo_codes
-) VALUES (
-  '00000000-0000-0000-0000-000000000001',
-  'K99 Kedai Kopi & Teh',
-  true,
-  'Jl. Pemuda No. 99, Indonesia',
-  '0812-9900-1999',
-  'Kedai kopi & teh santai dengan cita rasa otentik dan aneka cemilan lezat.',
-  'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=00020101021226500016ID.CO.QRIS.WWW011893600999000000000102159360099900000005204581253033605802ID5909K99KEDAI6007JAKARTA6304ABCD',
-  '/icon.svg',
-  true,
-  'K99 KEDAI KOPI & TEH',
-  E'Terima kasih telah berkunjung ke K99!\nFollow Instagram @k99kedai\n#K99SemuaSuka',
-  '[
-    {"id": "addon-1", "name": "Extra Shot Espresso", "price": 5000},
-    {"id": "addon-2", "name": "Gula Aren Tambahan", "price": 3000},
-    {"id": "addon-3", "name": "Grass Jelly / Cincau", "price": 4000},
-    {"id": "addon-4", "name": "Oat Milk Upgrade", "price": 7000},
-    {"id": "addon-5", "name": "Whipped Cream", "price": 4000}
-  ]'::jsonb,
-  '[
-    {"id": "promo-1", "code": "K99HEMAT", "discount_percent": 10, "min_purchase": 25000, "is_active": true, "created_at": "2026-10-09T09:00:00Z"}
-  ]'::jsonb
-)
-ON CONFLICT (id) DO NOTHING;
-
--- 2. Categories Initial
-INSERT INTO public.categories (id, name, is_active, sort_order)
-VALUES
-  ('cat-1', 'Kopi & Espresso', true, 1),
-  ('cat-2', 'Non-Coffee & Teh', true, 2),
-  ('cat-3', 'Signature K99', true, 3),
-  ('cat-4', 'Cemilan & Snack', true, 4)
-ON CONFLICT (id) DO NOTHING;
-
--- 3. Products Initial
-INSERT INTO public.products (id, category_id, name, description, price, cost_price, image_url, is_active, is_available, sort_order)
-VALUES
-  ('prod-1', 'cat-1', 'Kopi Susu Aren K99', 'Espresso blend mantap dengan susu segar lembut dan manis legit gula aren murni.', 18000, 7500, 'https://images.unsplash.com/photo-1541167760496-1628856ab772?auto=format&fit=crop&w=600&q=80', true, true, 1),
-  ('prod-2', 'cat-1', 'Americano Ice Double Shot', 'Espresso ganda segar dengan air dingin, aroma bold, dan rasa clean.', 15000, 4500, 'https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?auto=format&fit=crop&w=600&q=80', true, true, 2),
-  ('prod-3', 'cat-1', 'Caramel Macchiato K99', 'Espresso berpadu vanilla milk dengan drizzle saus caramel manis gurih.', 24000, 10000, 'https://images.unsplash.com/photo-1485808191679-5f86510681a2?auto=format&fit=crop&w=600&q=80', true, true, 3),
-  ('prod-4', 'cat-2', 'Kyoto Matcha Latte Ice', 'Matcha murni khas Jepang dengan susu segar kental dan creamy.', 22000, 9000, 'https://images.unsplash.com/photo-1536256263959-770b48d82b0a?auto=format&fit=crop&w=600&q=80', true, true, 4),
-  ('prod-5', 'cat-2', 'Artisan Earl Grey Milk Tea', 'Seduhan teh hitam beraroma bergamot dengan susu krimer lembut.', 19000, 7000, 'https://images.unsplash.com/photo-1576092768241-dec231879fc3?auto=format&fit=crop&w=600&q=80', true, true, 5),
-  ('prod-6', 'cat-3', 'K99 Butterscotch Cloud', 'Signature kopi susu dengan sea salt butterscotch foam lembut.', 26000, 11000, 'https://images.unsplash.com/photo-1572442388796-11668a67e53d?auto=format&fit=crop&w=600&q=80', true, true, 6),
-  ('prod-7', 'cat-4', 'Croffle Crispy Sugar Glaze', 'Croissant waffle hangat renyah di luar, lembut di dalam dengan taburan cinnamon sugar.', 20000, 8000, 'https://images.unsplash.com/photo-1568051243851-f9b136146e97?auto=format&fit=crop&w=600&q=80', true, true, 7),
-  ('prod-8', 'cat-4', 'French Fries K99 Truffle Mayo', 'Kentang goreng renyah bumbu gurih disajikan dengan cocolan saus truffle mayo.', 18000, 7000, 'https://images.unsplash.com/photo-1573080496219-bb080dd4f877?auto=format&fit=crop&w=600&q=80', true, true, 8)
-ON CONFLICT (id) DO NOTHING;
-
--- 4. Default Profile (Apep)
-INSERT INTO public.profiles (id, full_name, role)
-VALUES ('staff-apep-001', 'Apep (Owner & Admin K99)', 'owner')
-ON CONFLICT (id) DO UPDATE SET full_name = 'Apep (Owner & Admin K99)', role = 'owner';
+`;

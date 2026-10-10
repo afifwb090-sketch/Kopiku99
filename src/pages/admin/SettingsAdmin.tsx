@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { AdminLayout } from './AdminLayout';
 import { useStore } from '../../context/StoreContext';
 import { useAuth } from '../../context/AuthContext';
@@ -6,7 +6,15 @@ import { storeService } from '../../services/storeService';
 import { authService } from '../../services/authService';
 import { migrationService } from '../../services/migrationService';
 import { productService } from '../../services/productService';
-import { getSupabaseConfig, reinitializeSupabase } from '../../services/supabase';
+import {
+  getSupabaseConfig,
+  reinitializeSupabase,
+  testSupabaseFullConnection,
+  getSupabaseShareUrl,
+  SupabaseDiagnosticResult,
+} from '../../services/supabase';
+import { SCHEMA_SQL } from '../../services/schemaSql';
+import { pushLocalDataToSupabase } from '../../services/syncHelper';
 import { Profile, MigrationSummary, ProductAddon, UserRole, PromoCode } from '../../types/database';
 import { StaffAccount } from '../../services/authService';
 import { DEFAULT_ADDONS } from '../../services/mockData';
@@ -38,6 +46,10 @@ import {
   Percent,
   Ticket,
   Check,
+  RefreshCw,
+  Smartphone,
+  Share2,
+  Code2,
 } from 'lucide-react';
 
 export const SettingsAdmin: React.FC = () => {
@@ -87,11 +99,18 @@ export const SettingsAdmin: React.FC = () => {
   const [storeSavedMsg, setStoreSavedMsg] = useState<string | null>(null);
   const [invoiceSavedMsg, setInvoiceSavedMsg] = useState<string | null>(null);
 
-  // Supabase form state
+  // Supabase form & diagnostic states
   const [supabaseConfig, setSupabaseConfig] = useState(getSupabaseConfig());
   const [customUrl, setCustomUrl] = useState(supabaseConfig.url);
   const [customKey, setCustomKey] = useState(supabaseConfig.anonKey);
   const [supabaseSaveMsg, setSupabaseSaveMsg] = useState<string | null>(null);
+  const [diagnosticResult, setDiagnosticResult] = useState<SupabaseDiagnosticResult | null>(null);
+  const [isTestingConnection, setIsTestingConnection] = useState(false);
+  const [isPushingData, setIsPushingData] = useState(false);
+  const [pushDataResult, setPushDataResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [copiedSql, setCopiedSql] = useState(false);
+  const [copiedShareUrl, setCopiedShareUrl] = useState(false);
+  const [copiedEnvVars, setCopiedEnvVars] = useState(false);
 
   // Staff users state
   const [staffList, setStaffList] = useState<Profile[]>([]);
@@ -116,17 +135,16 @@ export const SettingsAdmin: React.FC = () => {
   const [migrationResultB, setMigrationResultB] = useState<MigrationSummary | null>(null);
   const [errorB, setErrorB] = useState<string | null>(null);
 
-  const isUserEditingStore = React.useRef(false);
-  const isUserEditingInvoice = React.useRef(false);
+  const hasLoadedInitial = useRef(false);
+  const isUserEditingStore = useRef(false);
+  const isUserEditingInvoice = useRef(false);
 
   useEffect(() => {
-    if (!isUserEditingStore.current && storeSettings.store_name) {
+    if (!hasLoadedInitial.current && storeSettings.store_name) {
       setStoreName(storeSettings.store_name);
       setAddress(storeSettings.address || '');
       setPhone(storeSettings.phone || '');
       setDescription(storeSettings.description || '');
-    }
-    if (!isUserEditingInvoice.current) {
       if (storeSettings.qris_image_url !== undefined) {
         setQrisImageUrl(storeSettings.qris_image_url || '');
       }
@@ -136,12 +154,13 @@ export const SettingsAdmin: React.FC = () => {
       setReceiptShowLogo(storeSettings.receipt_show_logo !== false);
       setReceiptHeaderText(storeSettings.receipt_header_text || storeSettings.store_name || '');
       setReceiptFooterText(storeSettings.receipt_footer_text || '');
-    }
-    if (storeSettings.available_addons && storeSettings.available_addons.length > 0) {
-      setAddonsList(storeSettings.available_addons);
-    }
-    if (storeSettings.promo_codes) {
-      setPromoCodesList(storeSettings.promo_codes);
+      if (storeSettings.available_addons && storeSettings.available_addons.length > 0) {
+        setAddonsList(storeSettings.available_addons);
+      }
+      if (storeSettings.promo_codes) {
+        setPromoCodesList(storeSettings.promo_codes);
+      }
+      hasLoadedInitial.current = true;
     }
   }, [storeSettings]);
 
@@ -329,16 +348,89 @@ export const SettingsAdmin: React.FC = () => {
     await refreshData();
   };
 
-  const handleSaveSupabaseConfig = (e: React.FormEvent) => {
+  const handleSaveSupabaseConfig = async (e: React.FormEvent) => {
     e.preventDefault();
     reinitializeSupabase(customUrl, customKey);
     const updated = getSupabaseConfig();
     setSupabaseConfig(updated);
     setSupabaseSaveMsg(
       updated.isConfigured
-        ? '✓ Konfigurasi Supabase berhasil diperbarui dan aktif!'
-        : '⚠️ Konfigurasi disimpan. Pastikan format URL dan Anon Key valid.'
+        ? '✓ Konfigurasi Supabase disimpan! Menjalankan tes koneksi otomatis...'
+        : '⚠️ Konfigurasi disimpan. Format URL atau Anon Key belum lengkap.'
     );
+
+    if (updated.isConfigured) {
+      await handleTestConnection();
+    }
+  };
+
+  const handleTestConnection = async () => {
+    setIsTestingConnection(true);
+    setDiagnosticResult(null);
+    try {
+      const res = await testSupabaseFullConnection();
+      setDiagnosticResult(res);
+      if (res.ok) {
+        setSupabaseSaveMsg(`✓ Terhubung ke Supabase! Latensi: ${res.latencyMs}ms. Semua tabel siap.`);
+      } else {
+        setSupabaseSaveMsg(`⚠️ Peringatan: ${res.message}`);
+      }
+    } catch (err: any) {
+      setSupabaseSaveMsg(`Error pengujian koneksi: ${err.message}`);
+    } finally {
+      setIsTestingConnection(false);
+    }
+  };
+
+  const handlePushDataToSupabase = async () => {
+    if (!window.confirm('Upload semua kategori, produk, dan data toko lokal ke database Supabase? Data yang sudah ada di Supabase akan diperbarui.')) {
+      return;
+    }
+    setIsPushingData(true);
+    setPushDataResult(null);
+    try {
+      const res = await pushLocalDataToSupabase();
+      if (res.ok) {
+        setPushDataResult({
+          ok: true,
+          msg: `Berhasil upload: ${res.categoriesSynced} kategori, ${res.productsSynced} produk, & profil kedai ke Supabase!`,
+        });
+        await refreshData();
+      } else {
+        setPushDataResult({
+          ok: false,
+          msg: `Gagal upload: ${res.error || 'Terjadi kesalahan'}`,
+        });
+      }
+    } catch (err: any) {
+      setPushDataResult({
+        ok: false,
+        msg: `Error: ${err.message}`,
+      });
+    } finally {
+      setIsPushingData(false);
+    }
+  };
+
+  const handleCopySql = () => {
+    navigator.clipboard.writeText(SCHEMA_SQL);
+    setCopiedSql(true);
+    setTimeout(() => setCopiedSql(false), 3000);
+  };
+
+  const handleCopyShareUrl = () => {
+    const url = getSupabaseShareUrl('/store');
+    if (!url) return;
+    navigator.clipboard.writeText(url);
+    setCopiedShareUrl(true);
+    setTimeout(() => setCopiedShareUrl(false), 3000);
+  };
+
+  const handleCopyEnvVars = () => {
+    const text = `VITE_SUPABASE_URL=${customUrl.trim()}\nVITE_SUPABASE_ANON_KEY=${customKey.trim()}`;
+    navigator.clipboard.writeText(text);
+    setCopiedEnvVars(true);
+    setTimeout(() => setCopiedEnvVars(false), 3000);
   };
 
   const handleCreateStaff = async (e: React.FormEvent) => {
@@ -1056,74 +1148,373 @@ export const SettingsAdmin: React.FC = () => {
           </div>
         )}
 
-        {/* TAB 4: SUPABASE CONNECTION */}
+        {/* TAB 4: SUPABASE CONNECTION & MULTI-DEVICE SYNC */}
         {tab === 'supabase' && (
-          <div className="space-y-4 max-w-3xl">
+          <div className="space-y-6 max-w-4xl">
+            {/* 1. STATUS & CREDENTIALS FORM */}
             <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5 space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
                 <div className="flex items-center gap-3">
-                  <div className="rounded-xl bg-emerald-500/10 p-2 text-emerald-400">
+                  <div className="rounded-xl bg-emerald-500/10 p-2.5 text-emerald-400">
                     <Database className="h-5 w-5" />
                   </div>
                   <div>
-                    <h3 className="font-bold text-white text-sm">Status Database Supabase</h3>
-                    <p className="text-xs text-slate-400">
-                      {supabaseConfig.isConfigured
-                        ? 'Terhubung dengan database Supabase PostgreSQL.'
-                        : 'Mode lokal / demo sinkronisasi realtime multi-tab aktif.'}
+                    <h3 className="font-bold text-white text-base">Konfigurasi Database Supabase</h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Sinkronisasi multi-device otomatis (PC Kasir, Laptop Admin, &amp; HP Pelanggan).
                     </p>
                   </div>
                 </div>
 
-                <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${
+                <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold shrink-0 ${
                   supabaseConfig.isConfigured
                     ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
                     : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
                 }`}>
-                  {supabaseConfig.isConfigured ? '🟢 Supabase Aktif' : '🟡 Standby / Demo'}
+                  <span className={`h-2 w-2 rounded-full ${supabaseConfig.isConfigured ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+                  {supabaseConfig.isConfigured ? 'Supabase Terhubung' : 'Mode Demo / Standby'}
                 </span>
               </div>
 
               {supabaseSaveMsg && (
-                <div className="rounded-xl bg-slate-800 p-3 text-xs text-amber-300">
-                  {supabaseSaveMsg}
+                <div className="rounded-xl bg-slate-800/90 border border-slate-700 p-3.5 text-xs text-amber-300 flex items-start gap-2">
+                  <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-amber-400" />
+                  <div>{supabaseSaveMsg}</div>
                 </div>
               )}
 
-              <form onSubmit={handleSaveSupabaseConfig} className="space-y-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Supabase Project URL (VITE_SUPABASE_URL)
-                  </label>
-                  <input
-                    type="url"
-                    placeholder="https://xyzproject.supabase.co"
-                    value={customUrl}
-                    onChange={(e) => setCustomUrl(e.target.value)}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-amber-500"
-                  />
+              <form onSubmit={handleSaveSupabaseConfig} className="space-y-4">
+                <div className="grid grid-cols-1 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      Supabase Project URL (VITE_SUPABASE_URL)
+                    </label>
+                    <input
+                      type="url"
+                      placeholder="https://xyzproject.supabase.co"
+                      value={customUrl}
+                      onChange={(e) => setCustomUrl(e.target.value)}
+                      className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3.5 py-2.5 text-xs font-mono text-white focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      Supabase Anon Public API Key (VITE_SUPABASE_ANON_KEY)
+                    </label>
+                    <input
+                      type="password"
+                      placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6..."
+                      value={customKey}
+                      onChange={(e) => setCustomKey(e.target.value)}
+                      className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3.5 py-2.5 text-xs font-mono text-white focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
                 </div>
 
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <button
+                    type="submit"
+                    className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2.5 text-xs font-bold text-slate-950 shadow-md shadow-amber-500/20 hover:bg-amber-400 active:scale-95 transition"
+                  >
+                    <Save className="h-4 w-4" />
+                    <span>Simpan Konfigurasi</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleTestConnection}
+                    disabled={isTestingConnection}
+                    className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-4 py-2.5 text-xs font-semibold text-white hover:bg-slate-700 active:scale-95 transition disabled:opacity-50"
+                  >
+                    <RefreshCw className={`h-4 w-4 text-emerald-400 ${isTestingConnection ? 'animate-spin' : ''}`} />
+                    <span>{isTestingConnection ? 'Menguji Koneksi...' : 'Uji Koneksi & Cek Semua Tabel'}</span>
+                  </button>
+                </div>
+              </form>
+
+              {/* DIAGNOSTIC CHECKLIST */}
+              {diagnosticResult && (
+                <div className={`mt-4 rounded-xl border p-4 text-xs space-y-3 ${
+                  diagnosticResult.ok
+                    ? 'border-emerald-500/30 bg-emerald-500/5'
+                    : 'border-amber-500/30 bg-amber-500/5'
+                }`}>
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                    <div className="font-bold text-white flex items-center gap-2">
+                      {diagnosticResult.ok ? (
+                        <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                      ) : (
+                        <AlertTriangle className="h-4 w-4 text-amber-400" />
+                      )}
+                      <span>Hasil Diagnostik Database</span>
+                    </div>
+                    <span className="text-[11px] text-slate-400 font-mono">
+                      Latensi: {diagnosticResult.latencyMs} ms
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+                    <div className={`p-2 rounded-lg border flex items-center justify-between ${
+                      diagnosticResult.tables.store_settings
+                        ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300'
+                        : 'border-rose-500/20 bg-rose-500/10 text-rose-300'
+                    }`}>
+                      <span>store_settings</span>
+                      <span>{diagnosticResult.tables.store_settings ? '✓ Siap' : '✗ Belum ada'}</span>
+                    </div>
+
+                    <div className={`p-2 rounded-lg border flex items-center justify-between ${
+                      diagnosticResult.tables.categories
+                        ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300'
+                        : 'border-rose-500/20 bg-rose-500/10 text-rose-300'
+                    }`}>
+                      <span>categories</span>
+                      <span>{diagnosticResult.tables.categories ? '✓ Siap' : '✗ Belum ada'}</span>
+                    </div>
+
+                    <div className={`p-2 rounded-lg border flex items-center justify-between ${
+                      diagnosticResult.tables.products
+                        ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300'
+                        : 'border-rose-500/20 bg-rose-500/10 text-rose-300'
+                    }`}>
+                      <span>products</span>
+                      <span>{diagnosticResult.tables.products ? '✓ Siap' : '✗ Belum ada'}</span>
+                    </div>
+
+                    <div className={`p-2 rounded-lg border flex items-center justify-between ${
+                      diagnosticResult.tables.orders
+                        ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300'
+                        : 'border-rose-500/20 bg-rose-500/10 text-rose-300'
+                    }`}>
+                      <span>orders</span>
+                      <span>{diagnosticResult.tables.orders ? '✓ Siap' : '✗ Belum ada'}</span>
+                    </div>
+                  </div>
+
+                  {!diagnosticResult.ok && (
+                    <div className="pt-2 text-slate-300 border-t border-slate-800">
+                      <p className="text-amber-400 font-medium mb-1">Penyebab tabel belum ditemukan:</p>
+                      <p className="text-slate-400 text-[11px]">
+                        Script schema SQL belum pernah dieksekusi di Supabase SQL Editor. Silakan salin script SQL di bawah ini dan jalankan di Supabase Dashboard.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* 2. SYNC LOCAL DATA TO SUPABASE BUTTON */}
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5 space-y-3">
+              <div className="flex items-center gap-3 border-b border-slate-800 pb-3">
+                <div className="rounded-xl bg-amber-500/10 p-2.5 text-amber-400">
+                  <Upload className="h-5 w-5" />
+                </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Supabase Anon Public API Key (VITE_SUPABASE_ANON_KEY)
-                  </label>
-                  <input
-                    type="password"
-                    placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6..."
-                    value={customKey}
-                    onChange={(e) => setCustomKey(e.target.value)}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-amber-500"
-                  />
+                  <h3 className="font-bold text-white text-sm">Upload &amp; Sinkronkan Data Lokal ke Supabase</h3>
+                  <p className="text-xs text-slate-400">
+                    Kirim semua produk, kategori, dan pengaturan yang ada di browser ini langsung ke Supabase dengan 1 klik.
+                  </p>
+                </div>
+              </div>
+
+              {pushDataResult && (
+                <div className={`p-3 rounded-xl text-xs border ${
+                  pushDataResult.ok
+                    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                    : 'border-rose-500/30 bg-rose-500/10 text-rose-300'
+                }`}>
+                  {pushDataResult.msg}
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={handlePushDataToSupabase}
+                disabled={isPushingData || !supabaseConfig.isConfigured}
+                className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2.5 text-xs font-bold text-slate-950 shadow-md shadow-amber-500/20 hover:bg-amber-400 disabled:opacity-50 transition"
+              >
+                <Upload className={`h-4 w-4 ${isPushingData ? 'animate-bounce' : ''}`} />
+                <span>{isPushingData ? 'Mengunggah Data ke Supabase...' : 'Upload Data Lokal ke Database Supabase Sekarang'}</span>
+              </button>
+            </div>
+
+            {/* 3. SHARE TO MOBILE (HP) VIA QR CODE & LINK */}
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5 space-y-4">
+              <div className="flex items-center gap-3 border-b border-slate-800 pb-3">
+                <div className="rounded-xl bg-sky-500/10 p-2.5 text-sky-400">
+                  <Smartphone className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-white text-sm">Hubungkan HP Pelanggan / Kasir via QR Code</h3>
+                  <p className="text-xs text-slate-400">
+                    Scan QR ini dengan kamera HP untuk langsung membuka toko dengan database Supabase yang sama terhubung otomatis.
+                  </p>
+                </div>
+              </div>
+
+              {supabaseConfig.isConfigured ? (
+                <div className="flex flex-col sm:flex-row items-center gap-5 p-3 rounded-xl bg-slate-950 border border-slate-800">
+                  <div className="w-36 h-36 bg-white p-2 rounded-xl shrink-0 shadow-md flex items-center justify-center">
+                    <img
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(getSupabaseShareUrl('/store'))}`}
+                      alt="QR Link HP"
+                      className="w-full h-full object-contain"
+                    />
+                  </div>
+
+                  <div className="space-y-2 text-xs text-slate-300 flex-1">
+                    <div className="font-semibold text-white">Cara Praktis Menghubungkan HP:</div>
+                    <ol className="list-decimal list-inside space-y-1 text-slate-400 text-[11px]">
+                      <li>Buka kamera di smartphone (HP) Anda.</li>
+                      <li>Arahkan kamera ke QR Code di samping.</li>
+                      <li>Tekan link yang muncul: HP akan langsung membuka menu kedai dan tersambung otomatis dengan database kedai Anda!</li>
+                    </ol>
+
+                    <div className="pt-2">
+                      <button
+                        type="button"
+                        onClick={handleCopyShareUrl}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800 text-xs font-semibold text-white hover:bg-slate-700 transition"
+                      >
+                        {copiedShareUrl ? (
+                          <>
+                            <Check className="h-3.5 w-3.5 text-emerald-400" />
+                            <span>Link HP Berhasil Disalin!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="h-3.5 w-3.5 text-slate-400" />
+                            <span>Salin Link Khusus HP</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-400">
+                  ⚠️ Silakan isi Supabase URL &amp; Anon Key di atas terlebih dahulu untuk membuat QR Code koneksi HP otomatis.
+                </div>
+              )}
+            </div>
+
+            {/* 4. SQL SCHEMA SETUP GUIDE (SQL EDITOR) */}
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5 space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <div className="flex items-center gap-3">
+                  <div className="rounded-xl bg-violet-500/10 p-2.5 text-violet-400">
+                    <Code2 className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-white text-sm">Setup Database Baru di Supabase (SQL Editor)</h3>
+                    <p className="text-xs text-slate-400">
+                      Eksekusi 1 kali di Supabase Dashboard untuk membuat tabel &amp; izin RLS otomatis.
+                    </p>
+                  </div>
                 </div>
 
                 <button
-                  type="submit"
-                  className="rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-400"
+                  type="button"
+                  onClick={handleCopySql}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-violet-500 text-slate-950 text-xs font-bold shadow-md hover:bg-violet-400 active:scale-95 transition shrink-0"
                 >
-                  Simpan &amp; Uji Koneksi
+                  {copiedSql ? (
+                    <>
+                      <Check className="h-3.5 w-3.5" />
+                      <span>Script Disalin!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-3.5 w-3.5" />
+                      <span>Salin Script SQL Lengkap</span>
+                    </>
+                  )}
                 </button>
-              </form>
+              </div>
+
+              <div className="rounded-xl bg-slate-950 p-4 border border-slate-800 space-y-2 text-xs text-slate-300">
+                <div className="font-semibold text-white">Langkah Mudah Menjalankan di Supabase:</div>
+                <ol className="list-decimal list-inside space-y-1.5 text-slate-400 text-[11px]">
+                  <li>
+                    Buka{' '}
+                    <a
+                      href="https://supabase.com/dashboard"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-amber-400 underline hover:text-amber-300 inline-flex items-center gap-0.5"
+                    >
+                      <span>supabase.com/dashboard</span>
+                      <ExternalLink className="h-3 w-3 inline" />
+                    </a>{' '}
+                    lalu buka project kedai K99 Anda.
+                  </li>
+                  <li>
+                    Di sidebar sebelah kiri, klik menu <span className="text-white font-semibold">SQL Editor</span> (ikon query).
+                  </li>
+                  <li>
+                    Klik tombol <span className="text-white font-semibold">New query</span>, lalu klik tombol <span className="text-violet-400 font-semibold">&ldquo;Salin Script SQL Lengkap&rdquo;</span> di atas dan paste (Ctrl+V) ke dalam editor.
+                  </li>
+                  <li>
+                    Klik tombol hijau <span className="text-emerald-400 font-semibold">Run</span> di pojok kanan bawah. Selesai! Semua tabel, izin akses, dan realtime langsung siap.
+                  </li>
+                </ol>
+              </div>
+            </div>
+
+            {/* 5. CLOUDFLARE PAGES ENVIRONMENT VARIABLES GUIDE */}
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5 space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <div className="flex items-center gap-3">
+                  <div className="rounded-xl bg-orange-500/10 p-2.5 text-orange-400">
+                    <DownloadCloud className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-white text-sm">Panduan Cloudflare Pages (Agar Semua Pelanggan Otomatis Konek)</h3>
+                    <p className="text-xs text-slate-400">
+                      Pengaturan wajib di Cloudflare Pages agar semua pengunjung otomatis terhubung tanpa scan QR.
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleCopyEnvVars}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-700 bg-slate-800 text-xs font-semibold text-white hover:bg-slate-700 transition shrink-0"
+                >
+                  {copiedEnvVars ? (
+                    <>
+                      <Check className="h-3.5 w-3.5 text-emerald-400" />
+                      <span>Variabel Disalin!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-3.5 w-3.5 text-slate-400" />
+                      <span>Salin Variabel Cloudflare</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              <div className="rounded-xl bg-slate-950 p-4 border border-slate-800 space-y-2.5 text-xs text-slate-300">
+                <p className="text-slate-400 text-[11px] leading-relaxed">
+                  Cloudflare Pages adalah hosting web statis. Agar aplikasi yang ter-build di Cloudflare Pages memiliki koneksi Supabase bawaan untuk semua pengunjung:
+                </p>
+                <ol className="list-decimal list-inside space-y-1.5 text-slate-400 text-[11px]">
+                  <li>Buka <span className="text-white font-semibold">Cloudflare Dashboard</span> &rarr; <span className="text-white font-semibold">Workers &amp; Pages</span> &rarr; Pilih project website Anda.</li>
+                  <li>Buka tab <span className="text-white font-semibold">Settings</span> &rarr; <span className="text-white font-semibold">Environment variables</span>.</li>
+                  <li>
+                    Tambahkan 2 variabel berikut pada bagian <span className="text-amber-400 font-semibold">Production</span>:
+                    <div className="mt-1.5 space-y-1 font-mono text-[11px] bg-slate-900 p-2.5 rounded-lg border border-slate-800 text-amber-300">
+                      <div>VITE_SUPABASE_URL = {customUrl || '(URL Supabase Anda)'}</div>
+                      <div>VITE_SUPABASE_ANON_KEY = {customKey ? `${customKey.substring(0, 20)}...` : '(Anon Key Supabase Anda)'}</div>
+                    </div>
+                  </li>
+                  <li>
+                    Setelah disimpan, buka tab <span className="text-white font-semibold">Deployments</span> &rarr; Klik titik tiga pada deploy terbaru &rarr; Pilih <span className="text-emerald-400 font-semibold">Retry deployment</span>.
+                  </li>
+                </ol>
+              </div>
             </div>
           </div>
         )}

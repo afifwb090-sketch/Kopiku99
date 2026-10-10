@@ -28,7 +28,8 @@ export const productService = {
 
       const url = `/api/products?${params.toString()}`;
       const res = await fetch(url, { cache: 'no-store' });
-      if (res.ok) {
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
         const serverProducts = (await res.json()) as Product[];
         if (Array.isArray(serverProducts)) {
           try {
@@ -41,11 +42,12 @@ export const productService = {
       // offline fallback
     }
 
+    // 2. Try Supabase
     if (supabase) {
       try {
         let query = supabase
           .from('products')
-          .select('*, categories(name)')
+          .select('*')
           .order('sort_order', { ascending: true });
 
         if (options?.onlyActive) query = query.eq('is_active', true);
@@ -55,15 +57,14 @@ export const productService = {
         }
 
         const { data, error } = await query;
-        if (!error && data && data.length > 0) {
-          const mapped = data.map((item: any) => ({
-            ...item,
-            category_name: item.categories?.name || undefined,
-          })) as Product[];
-          try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(mapped));
-          } catch {}
-          return mapped;
+        if (!error && Array.isArray(data)) {
+          if (data.length > 0) {
+            const mapped = data as Product[];
+            try {
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(mapped));
+            } catch {}
+            return mapped;
+          }
         }
       } catch (err) {
         console.warn('Supabase getProducts error:', err);
@@ -92,7 +93,14 @@ export const productService = {
       updated_at: new Date().toISOString(),
     };
 
-    // Save to server API first
+    // Save to local cache immediately
+    const current = getCachedProducts();
+    const updated = [...current, newProduct];
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    } catch {}
+
+    // Save to server API if available
     try {
       const res = await fetch(`/api/products?_t=${Date.now()}`, {
         method: 'POST',
@@ -100,23 +108,28 @@ export const productService = {
         cache: 'no-store',
         body: JSON.stringify(newProduct),
       });
-      if (res.ok) {
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
         const serverProd = await res.json();
-        const current = getCachedProducts();
-        try {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify([...current, serverProd]));
-        } catch {}
-        return serverProd;
+        if (serverProd?.id) {
+          try {
+            const fresh = getCachedProducts().filter(p => p.id !== newProduct.id);
+            localStorage.setItem(STORAGE_KEY, JSON.stringify([...fresh, serverProd]));
+          } catch {}
+          return serverProd;
+        }
       }
     } catch (err) {
       console.warn('Server API createProduct error:', err);
     }
 
+    // Upsert to Supabase
     if (supabase) {
       try {
         const { data, error } = await supabase
           .from('products')
-          .insert([{
+          .upsert([{
+            id: newProduct.id,
             name: product.name,
             category_id: product.category_id || null,
             description: product.description || null,
@@ -127,9 +140,11 @@ export const productService = {
             is_available: product.is_available ?? true,
             sort_order: product.sort_order ?? 0,
             legacy_id: product.legacy_id || null,
+            created_at: newProduct.created_at,
+            updated_at: newProduct.updated_at,
           }])
           .select()
-          .single();
+          .maybeSingle();
 
         if (!error && data) {
           return data as Product;
@@ -139,15 +154,19 @@ export const productService = {
       }
     }
 
-    const current = getCachedProducts();
-    const updated = [...current, newProduct];
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-    } catch {}
     return newProduct;
   },
 
   async updateProduct(id: string, updates: Partial<Product>): Promise<Product | null> {
+    const current = getCachedProducts();
+    const idx = current.findIndex(p => p.id === id);
+    if (idx !== -1) {
+      current[idx] = { ...current[idx], ...updates, updated_at: new Date().toISOString() };
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
+      } catch {}
+    }
+
     // 1. Try server API first
     try {
       const res = await fetch(`/api/products/${id}?_t=${Date.now()}`, {
@@ -156,17 +175,12 @@ export const productService = {
         cache: 'no-store',
         body: JSON.stringify(updates),
       });
-      if (res.ok) {
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
         const serverProd = await res.json();
-        const current = getCachedProducts();
-        const idx = current.findIndex(p => p.id === id);
-        if (idx !== -1) {
-          current[idx] = serverProd;
-          try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
-          } catch {}
+        if (serverProd) {
+          return serverProd;
         }
-        return serverProd;
       }
     } catch (err) {
       console.warn('Server API updateProduct error:', err);
@@ -183,7 +197,7 @@ export const productService = {
           .update(payload)
           .eq('id', id)
           .select()
-          .single();
+          .maybeSingle();
 
         if (!error && data) {
           return data as Product;
@@ -193,32 +207,24 @@ export const productService = {
       }
     }
 
-    const current = getCachedProducts();
-    const idx = current.findIndex(p => p.id === id);
-    if (idx !== -1) {
-      const updated = { ...current[idx], ...updates, updated_at: new Date().toISOString() };
-      current[idx] = updated;
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
-      } catch {}
-      return updated;
-    }
-    return null;
+    return idx !== -1 ? current[idx] : null;
   },
 
   async deleteProduct(id: string): Promise<boolean> {
+    const current = getCachedProducts();
+    const filtered = current.filter(p => p.id !== id);
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
+    } catch {}
+
     // 1. Try server API first
     try {
       const res = await fetch(`/api/products/${id}?_t=${Date.now()}`, {
         method: 'DELETE',
         cache: 'no-store',
       });
-      if (res.ok) {
-        const current = getCachedProducts();
-        const filtered = current.filter(p => p.id !== id);
-        try {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
-        } catch {}
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
         return true;
       }
     } catch (err) {
@@ -234,23 +240,40 @@ export const productService = {
       }
     }
 
-    const current = getCachedProducts();
-    const filtered = current.filter(p => p.id !== id);
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
-    } catch {}
     return true;
   },
 
   async uploadProductImage(file: File): Promise<string | null> {
-    // Read and optimize/compress image to avoid quota crashes
+    // 1. If Supabase is configured, try Supabase Storage first for a permanent public CDN URL
+    if (supabase) {
+      try {
+        const fileExt = file.name.split('.').pop() || 'png';
+        const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
+        const filePath = `uploads/${fileName}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('product-images')
+          .upload(filePath, file, { cacheControl: '3600', upsert: true });
+
+        if (!uploadError) {
+          const { data } = supabase.storage
+            .from('product-images')
+            .getPublicUrl(filePath);
+          if (data?.publicUrl) return data.publicUrl;
+        }
+      } catch (err) {
+        console.warn('Supabase storage upload error:', err);
+      }
+    }
+
+    // 2. Read and compress image with Canvas to lightweight base64 (~50-80KB)
+    // This works on ALL devices, Cloudflare Pages, mobile, desktop, with ZERO 404s!
     const base64Data: string = await new Promise((resolve) => {
       const reader = new FileReader();
       reader.onload = (e) => {
         const img = new Image();
         img.onload = () => {
-          // Max dimension 1000px for speedy uploads & crystal clear QRIS
-          const maxDim = 1000;
+          const maxDim = 800;
           let width = img.width;
           let height = img.height;
           if (width > maxDim || height > maxDim) {
@@ -268,7 +291,8 @@ export const productService = {
           const ctx = canvas.getContext('2d');
           if (ctx) {
             ctx.drawImage(img, 0, 0, width, height);
-            resolve(canvas.toDataURL('image/png', 0.9));
+            const isPng = file.type.includes('png');
+            resolve(canvas.toDataURL(isPng ? 'image/png' : 'image/jpeg', 0.85));
             return;
           }
           resolve(e.target?.result as string || '');
@@ -282,44 +306,29 @@ export const productService = {
 
     if (!base64Data) return null;
 
-    // 1. Try server API upload (saves file on disk, prevents 5MB localStorage crash)
-    try {
-      const res = await fetch(`/api/upload?_t=${Date.now()}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        cache: 'no-store',
-        body: JSON.stringify({ data: base64Data, filename: file.name }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.url) return data.url;
-      }
-    } catch (err) {
-      console.warn('Server upload error, trying fallbacks:', err);
-    }
+    // 3. Try server API upload if running on localhost Node server
+    const isStaticHost = typeof window !== 'undefined' &&
+      (window.location.hostname.includes('pages.dev') || window.location.hostname.includes('github.io'));
 
-    if (supabase) {
+    if (!isStaticHost) {
       try {
-        const fileExt = file.name.split('.').pop() || 'png';
-        const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
-        const filePath = `products/${fileName}`;
-
-        const { error: uploadError } = await supabase.storage
-          .from('product-images')
-          .upload(filePath, file, { cacheControl: '3600', upsert: true });
-
-        if (!uploadError) {
-          const { data } = supabase.storage
-            .from('product-images')
-            .getPublicUrl(filePath);
-          return data.publicUrl;
+        const res = await fetch(`/api/upload?_t=${Date.now()}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
+          body: JSON.stringify({ data: base64Data, filename: file.name }),
+        });
+        const contentType = res.headers.get('content-type') || '';
+        if (res.ok && contentType.includes('application/json')) {
+          const data = await res.json();
+          if (data?.url) return data.url;
         }
       } catch (err) {
-        console.warn('Supabase storage upload error:', err);
+        console.warn('Server upload error, using compressed base64:', err);
       }
     }
 
-    // Fallback: Return compressed base64 if server was temporarily unavailable
+    // Self-contained data URL is universal and never returns 404 on mobile or Cloudflare!
     return base64Data;
   },
 };

@@ -22,13 +22,24 @@ export const getCachedStoreSettings = (): StoreSetting => {
 
 export const storeService = {
   async getSettings(): Promise<StoreSetting> {
+    const cached = getCachedStoreSettings();
+
     // 1. Try server API first (primary sync across devices) with cache busting
     try {
       const res = await fetch(`/api/store?_t=${Date.now()}`, { cache: 'no-store' });
-      if (res.ok) {
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
         const data = await res.json();
-        localStorage.setItem(STORE_STORAGE_KEY, JSON.stringify(data));
-        return data as StoreSetting;
+        if (data && typeof data.is_open === 'boolean') {
+          // Check timestamp: don't overwrite if local cache was modified very recently (< 10s) and is newer
+          const localTime = cached.updated_at ? new Date(cached.updated_at).getTime() : 0;
+          const remoteTime = data.updated_at ? new Date(data.updated_at).getTime() : 0;
+          if (localTime > remoteTime && Date.now() - localTime < 10000) {
+            return cached;
+          }
+          localStorage.setItem(STORE_STORAGE_KEY, JSON.stringify(data));
+          return data as StoreSetting;
+        }
       }
     } catch {
       // offline or server not ready
@@ -41,9 +52,14 @@ export const storeService = {
           .from('store_settings')
           .select('*')
           .limit(1)
-          .single();
+          .maybeSingle();
 
         if (!error && data) {
+          const localTime = cached.updated_at ? new Date(cached.updated_at).getTime() : 0;
+          const remoteTime = data.updated_at ? new Date(data.updated_at).getTime() : 0;
+          if (localTime > remoteTime && Date.now() - localTime < 10000) {
+            return cached;
+          }
           localStorage.setItem(STORE_STORAGE_KEY, JSON.stringify(data));
           return data as StoreSetting;
         }
@@ -52,7 +68,7 @@ export const storeService = {
       }
     }
 
-    return getCachedStoreSettings();
+    return cached;
   },
 
   async updateStatus(isOpen: boolean, updatedBy?: string): Promise<StoreSetting> {
@@ -74,7 +90,7 @@ export const storeService = {
       realtimeBus.postMessage({ type: 'STORE_STATUS_CHANGED', data: updated });
     }
 
-    // Update server API for all devices with cache-busting
+    // Update server API for devices running Node backend
     try {
       const res = await fetch(`/api/store?_t=${Date.now()}`, {
         method: 'PUT',
@@ -82,31 +98,39 @@ export const storeService = {
         cache: 'no-store',
         body: JSON.stringify({ is_open: isOpen, updated_by: updatedBy || null }),
       });
-      if (res.ok) {
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
         const serverData = await res.json();
-        try {
-          localStorage.setItem(STORE_STORAGE_KEY, JSON.stringify(serverData));
-        } catch {}
-        return serverData;
+        if (serverData) {
+          try {
+            localStorage.setItem(STORE_STORAGE_KEY, JSON.stringify(serverData));
+          } catch {}
+          return serverData;
+        }
       }
     } catch (err) {
       console.warn('Server API store update error:', err);
     }
 
+    // Update Supabase with upsert so it never fails on ID mismatch
     if (supabase) {
       try {
-        const { data } = await supabase
-          .from('store_settings')
-          .update({
-            is_open: isOpen,
-            updated_at: new Date().toISOString(),
-            updated_by: updatedBy || null,
-          })
-          .eq('id', current.id)
-          .select()
-          .single();
+        // Query the first row ID in Supabase if exists, to avoid mismatch
+        const { data: existingRows } = await supabase.from('store_settings').select('id').limit(1);
+        const rowId = existingRows?.[0]?.id || current.id || '00000000-0000-0000-0000-000000000001';
 
-        if (data) {
+        const payload = {
+          ...updated,
+          id: rowId,
+        };
+
+        const { data, error } = await supabase
+          .from('store_settings')
+          .upsert(payload)
+          .select()
+          .maybeSingle();
+
+        if (!error && data) {
           localStorage.setItem(STORE_STORAGE_KEY, JSON.stringify(data));
           return data as StoreSetting;
         }
@@ -142,26 +166,41 @@ export const storeService = {
         cache: 'no-store',
         body: JSON.stringify(info),
       });
-      if (res.ok) {
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
         const serverData = await res.json();
-        try {
-          localStorage.setItem(STORE_STORAGE_KEY, JSON.stringify(serverData));
-        } catch {}
-        return serverData;
+        if (serverData) {
+          try {
+            localStorage.setItem(STORE_STORAGE_KEY, JSON.stringify(serverData));
+          } catch {}
+          return serverData;
+        }
       }
     } catch (err) {
       console.warn('Server API store update error:', err);
     }
 
+    // Upsert to Supabase
     if (supabase) {
       try {
-        const { data } = await supabase
+        const { data: existingRows } = await supabase.from('store_settings').select('id').limit(1);
+        const rowId = existingRows?.[0]?.id || current.id || '00000000-0000-0000-0000-000000000001';
+
+        const payload = {
+          ...updated,
+          id: rowId,
+        };
+
+        const { data, error } = await supabase
           .from('store_settings')
-          .update(info)
-          .eq('id', current.id)
+          .upsert(payload)
           .select()
-          .single();
-        if (data) return data as StoreSetting;
+          .maybeSingle();
+
+        if (!error && data) {
+          localStorage.setItem(STORE_STORAGE_KEY, JSON.stringify(data));
+          return data as StoreSetting;
+        }
       } catch (err) {
         console.warn('Supabase store update error:', err);
       }
@@ -189,27 +228,43 @@ export const storeService = {
       }
     }
 
-    // 1. Supabase Realtime channel
+    // 1. Supabase Realtime channel setup helper
     let supabaseChannel: any = null;
-    if (supabase) {
-      try {
-        supabaseChannel = supabase
-          .channel('public:store_settings')
-          .on(
-            'postgres_changes',
-            { event: '*', schema: 'public', table: 'store_settings' },
-            (payload) => {
-              if (payload.new) {
-                const newSettings = payload.new as StoreSetting;
-                localStorage.setItem(STORE_STORAGE_KEY, JSON.stringify(newSettings));
-                callback(newSettings);
-              }
-            }
-          )
-          .subscribe();
-      } catch (err) {
-        console.warn('Failed to subscribe to Supabase store_settings:', err);
+    const setupSupabaseChannel = () => {
+      if (supabaseChannel && supabase) {
+        try { supabase.removeChannel(supabaseChannel); } catch {}
+        supabaseChannel = null;
       }
+      if (supabase) {
+        try {
+          supabaseChannel = supabase
+            .channel('public:store_settings_' + Math.random().toString(36).substring(2, 6))
+            .on(
+              'postgres_changes',
+              { event: '*', schema: 'public', table: 'store_settings' },
+              (payload) => {
+                if (payload.new) {
+                  const newSettings = payload.new as StoreSetting;
+                  localStorage.setItem(STORE_STORAGE_KEY, JSON.stringify(newSettings));
+                  callback(newSettings);
+                }
+              }
+            )
+            .subscribe();
+        } catch (err) {
+          console.warn('Failed to subscribe to Supabase store_settings:', err);
+        }
+      }
+    };
+
+    setupSupabaseChannel();
+
+    // Listen to credentials change event
+    const handleSupaChange = () => {
+      setupSupabaseChannel();
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('k99_supabase_changed', handleSupaChange);
     }
 
     // 2. BroadcastChannel for local/multi-tab sync
@@ -222,7 +277,7 @@ export const storeService = {
       realtimeBus.addEventListener('message', handleBroadcast);
     }
 
-    // 3. Fallback polling every 5s if tab is active (ensures devices without SSE keep sync)
+    // 3. Fallback polling every 5s
     const interval = setInterval(async () => {
       const latest = await storeService.getSettings();
       callback(latest);
@@ -233,10 +288,13 @@ export const storeService = {
         sseSource.close();
       }
       if (supabaseChannel && supabase) {
-        supabase.removeChannel(supabaseChannel);
+        try { supabase.removeChannel(supabaseChannel); } catch {}
       }
       if (realtimeBus) {
         realtimeBus.removeEventListener('message', handleBroadcast);
+      }
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('k99_supabase_changed', handleSupaChange);
       }
       clearInterval(interval);
     };

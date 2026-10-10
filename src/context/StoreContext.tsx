@@ -154,17 +154,33 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           categoryService.getCategories(),
           productService.getProducts(),
         ]);
-        setStoreSettings(settings);
-        if (cats && cats.length > 0) setCategories(cats);
-        if (prods && prods.length > 0) setProducts(prods);
+        if (settings && typeof settings.is_open === 'boolean') {
+          setStoreSettings(settings);
+        }
+        if (Array.isArray(cats) && cats.length > 0) {
+          setCategories(cats);
+        }
+        if (Array.isArray(prods) && prods.length > 0) {
+          setProducts(prods);
+        }
       } catch {}
     }, 4000);
+
+    const handleSupaChange = () => {
+      refreshData();
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('k99_supabase_changed', handleSupaChange);
+    }
 
     return () => {
       if (sseSource) sseSource.close();
       unsubStore();
       unsubOrders();
       clearInterval(syncInterval);
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('k99_supabase_changed', handleSupaChange);
+      }
     };
   }, [refreshData]);
 
